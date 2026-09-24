@@ -4,13 +4,21 @@
 using Bit.Api.AdminConsole.Authorization.Providers.Requirements;
 using Bit.Api.AdminConsole.Models.Request.Providers;
 using Bit.Api.AdminConsole.Models.Response.Providers;
+using Bit.Api.Models.Response;
+using Bit.Core;
+using Bit.Core.AdminConsole.Entities.Provider;
+using Bit.Core.AdminConsole.Providers.ProviderApiKeys.Interfaces;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Services;
+using Bit.Core.Auth.Identity;
+using Bit.Core.Billing.Extensions;
 using Bit.Core.Billing.Providers.Services;
+using Bit.Core.Context;
 using Bit.Core.Exceptions;
 using Bit.Core.Services;
 using Bit.Core.Settings;
 using Bit.OrganizationAuthorization;
+using Bitwarden.Server.Sdk.Features;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,10 +34,17 @@ public class ProvidersController : Controller
     private readonly GlobalSettings _globalSettings;
     private readonly IProviderBillingService _providerBillingService;
     private readonly ILogger<ProvidersController> _logger;
+    private readonly ICurrentContext _currentContext;
+    private readonly IGetProviderApiKeyQuery _getProviderApiKeyQuery;
+    private readonly ICreateProviderApiKeyCommand _createProviderApiKeyCommand;
+    private readonly IRotateProviderApiKeyCommand _rotateProviderApiKeyCommand;
 
     public ProvidersController(IUserService userService, IProviderRepository providerRepository,
         IProviderService providerService, GlobalSettings globalSettings,
-        IProviderBillingService providerBillingService, ILogger<ProvidersController> logger)
+        IProviderBillingService providerBillingService, ILogger<ProvidersController> logger,
+        ICurrentContext currentContext, IGetProviderApiKeyQuery getProviderApiKeyQuery,
+        ICreateProviderApiKeyCommand createProviderApiKeyCommand,
+        IRotateProviderApiKeyCommand rotateProviderApiKeyCommand)
     {
         _userService = userService;
         _providerRepository = providerRepository;
@@ -37,6 +52,10 @@ public class ProvidersController : Controller
         _globalSettings = globalSettings;
         _providerBillingService = providerBillingService;
         _logger = logger;
+        _currentContext = currentContext;
+        _getProviderApiKeyQuery = getProviderApiKeyQuery;
+        _createProviderApiKeyCommand = createProviderApiKeyCommand;
+        _rotateProviderApiKeyCommand = rotateProviderApiKeyCommand;
     }
 
     [HttpGet("{providerId:guid}")]
@@ -137,5 +156,79 @@ public class ProvidersController : Controller
         }
 
         await _providerService.DeleteAsync(provider);
+    }
+
+    [HttpPost("{providerId:guid}/api-key")]
+    [Authorize<ProviderAdminRequirement>]
+    // Web vault only: the CLI and other clients must not be able to retrieve or rotate the provider API key
+    [Authorize(Policies.Web)]
+    [RequireFeature(FeatureFlagKeys.ProviderApiKey)]
+    public async Task<ApiKeyResponseModel> ApiKey([FromRoute] Guid providerId, [FromBody] ProviderApiKeyRequestModel model)
+    {
+        var provider = await GetApiKeyEligibleProviderAsync(providerId);
+
+        await VerifySecretAsync(model);
+
+        var providerApiKey = await _getProviderApiKeyQuery.GetProviderApiKeyAsync(provider.Id, model.Type) ??
+                             await _createProviderApiKeyCommand.CreateAsync(provider.Id, model.Type);
+
+        return new ApiKeyResponseModel(providerApiKey);
+    }
+
+    [HttpPost("{providerId:guid}/rotate-api-key")]
+    [Authorize<ProviderAdminRequirement>]
+    // Web vault only: the CLI and other clients must not be able to retrieve or rotate the provider API key
+    [Authorize(Policies.Web)]
+    [RequireFeature(FeatureFlagKeys.ProviderApiKey)]
+    public async Task<ApiKeyResponseModel> RotateApiKey([FromRoute] Guid providerId, [FromBody] ProviderApiKeyRequestModel model)
+    {
+        var provider = await GetApiKeyEligibleProviderAsync(providerId);
+
+        await VerifySecretAsync(model);
+
+        var providerApiKey = await _getProviderApiKeyQuery.GetProviderApiKeyAsync(provider.Id, model.Type);
+        if (providerApiKey == null)
+        {
+            throw new NotFoundException();
+        }
+
+        await _rotateProviderApiKeyCommand.RotateApiKeyAsync(providerApiKey);
+        return new ApiKeyResponseModel(providerApiKey);
+    }
+
+    /// <summary>
+    /// Returns the provider if the current user is a Provider Admin of it and it is eligible to hold an API key:
+    /// enabled and billable. Otherwise throws <see cref="NotFoundException"/>.
+    /// </summary>
+    private async Task<Provider> GetApiKeyEligibleProviderAsync(Guid providerId)
+    {
+        if (!_currentContext.ProviderProviderAdmin(providerId))
+        {
+            throw new NotFoundException();
+        }
+
+        var provider = await _providerRepository.GetByIdAsync(providerId);
+        // IsBillable limits eligibility to consolidated-billing provider types (MSP and Business Unit) in Billable status
+        if (provider is not { Enabled: true } || !provider.IsBillable())
+        {
+            throw new NotFoundException();
+        }
+
+        return provider;
+    }
+
+    private async Task VerifySecretAsync(ProviderApiKeyRequestModel model)
+    {
+        var user = await _userService.GetUserByPrincipalAsync(User);
+        if (user == null)
+        {
+            throw new UnauthorizedAccessException();
+        }
+
+        if (!await _userService.VerifySecretAsync(user, model.Secret))
+        {
+            await Task.Delay(2000);
+            throw new BadRequestException("MasterPasswordHash", "Invalid password.");
+        }
     }
 }

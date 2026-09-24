@@ -60,6 +60,7 @@ public static class DapperServiceCollectionExtensions
         services.AddSingleton<IAccessLeaseRepository, Pam.Repositories.AccessLeaseRepository>();
         services.AddSingleton<IPlayItemRepository, PlayItemRepository>();
         services.AddSingleton<IPolicyRepository, PolicyRepository>();
+        services.AddSingleton<IProviderApiKeyRepository, ProviderApiKeyRepository>();
         services.AddSingleton<IProviderOrganizationRepository, ProviderOrganizationRepository>();
         services.AddSingleton<IProviderRepository, ProviderRepository>();
         services.AddSingleton<IProviderUserRepository, ProviderUserRepository>();

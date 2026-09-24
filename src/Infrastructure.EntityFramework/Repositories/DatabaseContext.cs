@@ -68,6 +68,7 @@ public class DatabaseContext : DbContext
     public DbSet<OrganizationInviteLink> OrganizationInviteLinks { get; set; }
     public DbSet<Policy> Policies { get; set; }
     public DbSet<Provider> Providers { get; set; }
+    public DbSet<ProviderApiKey> ProviderApiKeys { get; set; }
     public DbSet<Secret> Secret { get; set; }
     public DbSet<SecretVersion> SecretVersion { get; set; }
     public DbSet<ServiceAccount> ServiceAccount { get; set; }
