@@ -38,6 +38,7 @@ public class CurrentContext(
     public virtual List<CurrentContextProvider> Providers { get; set; }
     public virtual Guid? InstallationId { get; set; }
     public virtual Guid? OrganizationId { get; set; }
+    public virtual Guid? ProviderId { get; set; }
     public virtual string ClientId { get; set; }
     public virtual Version ClientVersion { get; set; }
     public virtual bool ClientVersionIsPrerelease { get; set; }
@@ -146,6 +147,13 @@ public class CurrentContext(
                 {
                     OrganizationId = idGuid;
                     orgApi = true;
+                }
+            }
+            else if (ClientId?.StartsWith("provider.") ?? false)
+            {
+                if (Guid.TryParse(clientSubject, out var idGuid))
+                {
+                    ProviderId = idGuid;
                 }
             }
         }

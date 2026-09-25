@@ -71,6 +71,19 @@ public static class Policies
     public const string Organization = "Organization";
 
     /// <summary>
+    /// Policy to restrict access to public API endpoints for Providers, authenticated with a Provider API key.
+    /// </summary>
+    /// <remarks>
+    /// <example>
+    /// Can be used with the <c>Authorize</c> attribute, for example:
+    /// <code>
+    /// [Authorize(Policy = Policies.Provider)]
+    /// </code>
+    /// </example>
+    /// </remarks>
+    public const string Provider = "Provider";
+
+    /// <summary>
     /// Policy to restrict access to API endpoints related to the setting up new installations.
     /// </summary>
     /// <remarks>

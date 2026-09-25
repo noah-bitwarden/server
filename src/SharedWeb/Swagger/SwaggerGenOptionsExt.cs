@@ -26,6 +26,7 @@ public static class SwaggerGenOptionsExt
         config.SchemaFilter<EncryptedStringSchemaFilter>();
         config.SchemaFilter<Base64UrlSchemaFilter>();
         config.SchemaFilter<RawJsonSchemaFilter>();
+        config.SchemaFilter<IsoDateOnlyStringSchemaFilter>();
 
         config.OperationFilter<ActionNameOperationFilter>();
         config.OperationFilter<BindNeverOperationFilter>();

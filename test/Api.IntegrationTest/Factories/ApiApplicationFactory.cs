@@ -101,4 +101,13 @@ public class ApiApplicationFactory : WebApplicationFactoryBase<Startup>
     {
         return await _identityApplicationFactory.TokenFromOrganizationApiKeyAsync(clientId, clientSecret);
     }
+
+    /// <summary>
+    /// Helper for logging in with a Provider api key.
+    /// Currently used for the Provider Public Api
+    /// </summary>
+    public async Task<string> LoginWithProviderApiKeyAsync(Guid providerId, string clientSecret)
+    {
+        return await _identityApplicationFactory.TokenFromProviderApiKeyAsync(providerId, clientSecret);
+    }
 }
