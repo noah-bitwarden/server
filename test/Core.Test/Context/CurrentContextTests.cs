@@ -236,6 +236,53 @@ public class CurrentContextTests
     }
 
     [Theory, BitAutoData]
+    public async Task SetContextAsync_ProviderClient_SetsProviderIdOnly(
+        SutProvider<CurrentContext> sutProvider,
+        Guid providerId)
+    {
+        // Arrange
+        var claims = new List<Claim>
+        {
+            new("client_id", $"provider.{providerId}"),
+            new("client_sub", providerId.ToString())
+        };
+        var user = new ClaimsPrincipal(new ClaimsIdentity(claims));
+        sutProvider.Sut.OrganizationId = null;
+        sutProvider.Sut.InstallationId = null;
+
+        // Act
+        await sutProvider.Sut.SetContextAsync(user);
+
+        // Assert
+        Assert.Equal(providerId, sutProvider.Sut.ProviderId);
+        Assert.Null(sutProvider.Sut.OrganizationId);
+        Assert.Null(sutProvider.Sut.InstallationId);
+        Assert.Empty(sutProvider.Sut.Providers);
+        Assert.Empty(sutProvider.Sut.Organizations);
+    }
+
+    [Theory, BitAutoData]
+    public async Task SetContextAsync_OrganizationClient_DoesNotSetProviderId(
+        SutProvider<CurrentContext> sutProvider,
+        Guid organizationId)
+    {
+        // Arrange
+        var claims = new List<Claim>
+        {
+            new("client_id", $"organization.{organizationId}"),
+            new("client_sub", organizationId.ToString())
+        };
+        var user = new ClaimsPrincipal(new ClaimsIdentity(claims));
+        sutProvider.Sut.ProviderId = null;
+
+        // Act
+        await sutProvider.Sut.SetContextAsync(user);
+
+        // Assert
+        Assert.Null(sutProvider.Sut.ProviderId);
+    }
+
+    [Theory, BitAutoData]
     public async Task SetContextAsync_ServiceAccount_SetsServiceAccountOrganizationId(
         SutProvider<CurrentContext> sutProvider,
         Guid organizationId)

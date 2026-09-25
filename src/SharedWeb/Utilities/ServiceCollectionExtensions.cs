@@ -818,6 +818,7 @@ public static class ServiceCollectionExtensions
                     Scopes = new Dictionary<string, string>
                     {
                         { ApiScopes.ApiOrganization, $"Organization APIs ({serverDescription})" },
+                        { ApiScopes.ApiProvider, $"Provider APIs ({serverDescription})" },
                     },
                 }
             },

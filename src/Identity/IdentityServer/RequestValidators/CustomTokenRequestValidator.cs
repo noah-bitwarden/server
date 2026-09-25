@@ -104,6 +104,7 @@ public class CustomTokenRequestValidator : BaseRequestValidator<CustomTokenReque
             || clientId.StartsWith("organization")
             || clientId.StartsWith("installation")
             || clientId.StartsWith("internal")
+            || clientId.StartsWith("provider.")
             || context.Result.ValidatedRequest.Client.AllowedScopes.Contains(ApiScopes.ApiSecrets))
         {
             if (context.Result.ValidatedRequest.Client.Properties.TryGetValue("encryptedPayload", out var payload) &&

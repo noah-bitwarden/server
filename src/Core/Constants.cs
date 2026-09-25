@@ -146,6 +146,7 @@ public static partial class FeatureFlagKeys
     public const string PM43375CollectionsDecryptListFailures = "pm-43375-collections-decrypt-list-failures";
     public const string PoliciesInAcceptedState = "pm-34145-policies-in-accepted-state";
     public const string ProviderApiKey = "pm-provider-api-key";
+    public const string ProviderPublicApi = "pm-provider-public-api"; // VERIFY key name
 
     /* Architecture */
     public const string DesktopMigrationMilestone1 = "desktop-ui-migration-milestone-1";
