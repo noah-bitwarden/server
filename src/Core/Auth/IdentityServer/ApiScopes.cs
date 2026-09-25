@@ -8,6 +8,7 @@ public static class ApiScopes
     public const string ApiInstallation = "api.installation";
     public const string ApiLicensing = "api.licensing";
     public const string ApiOrganization = "api.organization";
+    public const string ApiProvider = "api.provider";
     public const string ApiPush = "api.push";
     public const string ApiSecrets = "api.secrets";
     public const string Internal = "internal";
@@ -22,6 +23,7 @@ public static class ApiScopes
             new(ApiLicensing, "API Licensing Access"),
             new(ApiOrganization, "API Organization Access"),
             new(ApiInstallation, "API Installation Access"),
+            new(ApiProvider, "API Provider Access"),
             new(Internal, "Internal Access"),
             new(ApiSecrets, "Secrets Manager Access"),
             new(ApiSendAccess, "API Send Access"),

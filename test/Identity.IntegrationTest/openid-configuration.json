@@ -11,6 +11,7 @@
     "api.licensing",
     "api.organization",
     "api.installation",
+    "api.provider",
     "internal",
     "api.secrets",
     "api.send.access",

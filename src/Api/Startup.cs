@@ -136,6 +136,11 @@ public class Startup
                 policy.RequireAuthenticatedUser();
                 policy.RequireClaim(JwtClaimTypes.Scope, ApiScopes.ApiOrganization);
             });
+            config.AddPolicy(Policies.Provider, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.RequireClaim(JwtClaimTypes.Scope, ApiScopes.ApiProvider);
+            });
             config.AddPolicy(Policies.Installation, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -350,7 +355,8 @@ public class Startup
                                         TokenUrl = new Uri($"{globalSettings.BaseServiceUri.Identity}/connect/token"),
                                         Scopes = new Dictionary<string, string>
                                 {
-                                    { ApiScopes.ApiOrganization, "Organization APIs" }
+                                    { ApiScopes.ApiOrganization, "Organization APIs" },
+                                    { ApiScopes.ApiProvider, "Provider APIs" }
                                 }
                                     }
                                 }
