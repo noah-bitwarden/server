@@ -88,13 +88,16 @@ public class ProvidersControllerTests
         await AssertNoKeyCreatedOrRotated(sutProvider);
     }
 
-    [Theory, BitAutoData]
-    public async Task ApiKey_ResellerProvider_ThrowsNotFound(
+    [Theory]
+    [BitAutoData(ProviderType.Reseller)]
+    [BitAutoData(ProviderType.BusinessUnit)]
+    public async Task ApiKey_NonMspProvider_ThrowsNotFound(
+        ProviderType providerType,
         SutProvider<ProvidersController> sutProvider,
         Provider provider)
     {
         SetupEligibleProvider(sutProvider, provider);
-        provider.Type = ProviderType.Reseller;
+        provider.Type = providerType;
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => sutProvider.Sut.ApiKey(provider.Id, CreateModel()));
@@ -119,18 +122,14 @@ public class ProvidersControllerTests
         await AssertNoKeyCreatedOrRotated(sutProvider);
     }
 
-    [Theory]
-    [BitAutoData(ProviderType.Msp)]
-    [BitAutoData(ProviderType.BusinessUnit)]
-    public async Task ApiKey_EligibleProviderType_NoExistingKey_CreatesKey(
-        ProviderType providerType,
+    [Theory, BitAutoData]
+    public async Task ApiKey_MspProvider_NoExistingKey_CreatesKey(
         SutProvider<ProvidersController> sutProvider,
         Provider provider,
         ProviderApiKey createdApiKey,
         User user)
     {
         SetupEligibleProvider(sutProvider, provider);
-        provider.Type = providerType;
         SetupSecretVerification(sutProvider, user, true);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
             .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
@@ -295,13 +294,16 @@ public class ProvidersControllerTests
         await AssertNoKeyCreatedOrRotated(sutProvider);
     }
 
-    [Theory, BitAutoData]
-    public async Task RotateApiKey_ResellerProvider_ThrowsNotFound(
+    [Theory]
+    [BitAutoData(ProviderType.Reseller)]
+    [BitAutoData(ProviderType.BusinessUnit)]
+    public async Task RotateApiKey_NonMspProvider_ThrowsNotFound(
+        ProviderType providerType,
         SutProvider<ProvidersController> sutProvider,
         Provider provider)
     {
         SetupEligibleProvider(sutProvider, provider);
-        provider.Type = ProviderType.Reseller;
+        provider.Type = providerType;
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => sutProvider.Sut.RotateApiKey(provider.Id, CreateModel()));

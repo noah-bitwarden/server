@@ -7,6 +7,7 @@ using Bit.Api.AdminConsole.Models.Response.Providers;
 using Bit.Api.Models.Response;
 using Bit.Core;
 using Bit.Core.AdminConsole.Entities.Provider;
+using Bit.Core.AdminConsole.Enums.Provider;
 using Bit.Core.AdminConsole.Providers.ProviderApiKeys.Interfaces;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Services;
@@ -198,7 +199,7 @@ public class ProvidersController : Controller
 
     /// <summary>
     /// Returns the provider if the current user is a Provider Admin of it and it is eligible to hold an API key:
-    /// enabled and billable. Otherwise throws <see cref="NotFoundException"/>.
+    /// an enabled, billable MSP. Otherwise throws <see cref="NotFoundException"/>.
     /// </summary>
     private async Task<Provider> GetApiKeyEligibleProviderAsync(Guid providerId)
     {
@@ -208,8 +209,9 @@ public class ProvidersController : Controller
         }
 
         var provider = await _providerRepository.GetByIdAsync(providerId);
-        // IsBillable limits eligibility to consolidated-billing provider types (MSP and Business Unit) in Billable status
-        if (provider is not { Enabled: true } || !provider.IsBillable())
+        // Only MSPs can use the provider API key today, so Business Unit providers are excluded even though they are
+        // billable. IsBillable additionally requires Billable status.
+        if (provider is not { Enabled: true, Type: ProviderType.Msp } || !provider.IsBillable())
         {
             throw new NotFoundException();
         }
