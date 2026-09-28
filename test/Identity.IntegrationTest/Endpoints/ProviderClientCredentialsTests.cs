@@ -106,7 +106,7 @@ public class ProviderClientCredentialsTests
         var apiKey = await factory.Services.GetRequiredService<IProviderApiKeyRepository>().CreateAsync(new ProviderApiKey
         {
             ProviderId = provider.Id,
-            Type = ProviderApiKeyType.BillingReadOnly,
+            Type = ProviderApiKeyType.Default,
             ApiKey = "provider-test-api-key-0123456",
             RevisionDate = DateTime.UtcNow,
         });

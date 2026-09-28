@@ -11,7 +11,7 @@ namespace Bit.Identity.IdentityServer.ClientProviders;
 
 /// <summary>
 /// Issues client credentials clients for Providers (<c>provider.{providerId}</c>), authenticated with the
-/// Provider's <see cref="ProviderApiKeyType.BillingReadOnly"/> API key. Mirrors <see cref="OrganizationClientProvider"/>.
+/// Provider's <see cref="ProviderApiKeyType.Default"/> API key. Mirrors <see cref="OrganizationClientProvider"/>.
 /// </summary>
 internal class ProviderClientProvider : IClientProvider
 {
@@ -49,7 +49,7 @@ internal class ProviderClientProvider : IClientProvider
 
         // NOTE: A provider may only have one api key per type, enforced by a unique index
         var providerApiKey = (await _providerApiKeyRepository
-                .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.BillingReadOnly))
+                .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.Default))
             .SingleOrDefault();
         if (providerApiKey == null)
         {

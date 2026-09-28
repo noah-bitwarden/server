@@ -187,7 +187,7 @@ public class ProviderControllerTests : IAsyncLifetime
         var apiKey = await _factory.GetService<IProviderApiKeyRepository>().CreateAsync(new ProviderApiKey
         {
             ProviderId = provider.Id,
-            Type = ProviderApiKeyType.BillingReadOnly,
+            Type = ProviderApiKeyType.Default,
             ApiKey = "provider-test-api-key-0123456",
             RevisionDate = DateTime.UtcNow,
         });

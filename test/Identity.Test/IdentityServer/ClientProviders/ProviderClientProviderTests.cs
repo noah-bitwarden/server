@@ -108,14 +108,14 @@ public class ProviderClientProviderTests
                 {
                     Id = Guid.NewGuid(),
                     ProviderId = provider.Id,
-                    Type = ProviderApiKeyType.BillingReadOnly,
+                    Type = ProviderApiKeyType.Default,
                     ApiKey = "test-api-key",
                     RevisionDate = DateTime.UtcNow,
                 },
             }
             : [];
         _providerApiKeyRepository
-            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.Default)
             .Returns(apiKeys);
 
         return provider;
