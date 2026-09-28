@@ -1,4 +1,5 @@
-﻿using Bit.Core.Entities;
+﻿using Bit.Core.AdminConsole.Entities.Provider;
+using Bit.Core.Entities;
 using Bit.Core.Models.Api;
 
 namespace Bit.Api.Models.Response;
@@ -14,6 +15,17 @@ public class ApiKeyResponseModel : ResponseModel
         }
         ApiKey = organizationApiKey.ApiKey;
         RevisionDate = organizationApiKey.RevisionDate;
+    }
+
+    public ApiKeyResponseModel(ProviderApiKey providerApiKey, string obj = "apiKey")
+        : base(obj)
+    {
+        if (providerApiKey == null)
+        {
+            throw new ArgumentNullException(nameof(providerApiKey));
+        }
+        ApiKey = providerApiKey.ApiKey;
+        RevisionDate = providerApiKey.RevisionDate;
     }
 
     public ApiKeyResponseModel(User user, string obj = "apiKey")

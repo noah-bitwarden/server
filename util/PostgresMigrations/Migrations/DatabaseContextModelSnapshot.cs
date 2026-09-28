@@ -541,6 +541,34 @@ namespace Bit.PostgresMigrations.Migrations
                     b.ToTable("Provider", (string)null);
                 });
 
+            modelBuilder.Entity("Bit.Infrastructure.EntityFramework.AdminConsole.Models.Provider.ProviderApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApiKey")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RevisionDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte>("Type")
+                        .HasColumnType("smallint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderId", "Type")
+                        .IsUnique()
+                        .HasAnnotation("SqlServer:Clustered", false);
+
+                    b.ToTable("ProviderApiKey", (string)null);
+                });
+
             modelBuilder.Entity("Bit.Infrastructure.EntityFramework.AdminConsole.Models.Provider.ProviderOrganization", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3252,6 +3280,15 @@ namespace Bit.PostgresMigrations.Migrations
                         .IsRequired();
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("Bit.Infrastructure.EntityFramework.AdminConsole.Models.Provider.ProviderApiKey", b =>
+                {
+                    b.HasOne("Bit.Infrastructure.EntityFramework.AdminConsole.Models.Provider.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Bit.Infrastructure.EntityFramework.AdminConsole.Models.Provider.ProviderOrganization", b =>
