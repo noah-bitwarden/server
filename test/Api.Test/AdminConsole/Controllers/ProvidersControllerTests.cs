@@ -132,10 +132,10 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, true);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .ReturnsNull();
         sutProvider.GetDependency<ICreateProviderApiKeyCommand>()
-            .CreateAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .CreateAsync(provider.Id, ProviderApiKeyType.Default)
             .Returns(createdApiKey);
 
         var result = await sutProvider.Sut.ApiKey(provider.Id, CreateModel());
@@ -144,7 +144,7 @@ public class ProvidersControllerTests
         Assert.Equal(createdApiKey.RevisionDate, result.RevisionDate);
         await sutProvider.GetDependency<ICreateProviderApiKeyCommand>()
             .Received(1)
-            .CreateAsync(provider.Id, ProviderApiKeyType.BillingReadOnly);
+            .CreateAsync(provider.Id, ProviderApiKeyType.Default);
     }
 
     [Theory, BitAutoData]
@@ -157,7 +157,7 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, true);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .Returns(existingApiKey);
 
         var result = await sutProvider.Sut.ApiKey(provider.Id, CreateModel());
@@ -176,7 +176,7 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, false);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .ReturnsNull();
 
         await Assert.ThrowsAsync<BadRequestException>(
@@ -204,7 +204,7 @@ public class ProvidersControllerTests
         {
             Id = Guid.NewGuid(),
             ProviderId = provider.Id,
-            Type = ProviderApiKeyType.BillingReadOnly,
+            Type = ProviderApiKeyType.Default,
             ApiKey = "original-api-key",
             RevisionDate = originalRevisionDate,
         };
@@ -212,7 +212,7 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, true);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .Returns(existingApiKey);
 
         var result = await sutProvider.Sut.RotateApiKey(provider.Id, CreateModel());
@@ -236,7 +236,7 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, true);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .ReturnsNull();
 
         await Assert.ThrowsAsync<NotFoundException>(
@@ -255,7 +255,7 @@ public class ProvidersControllerTests
         SetupEligibleProvider(sutProvider, provider);
         SetupSecretVerification(sutProvider, user, false);
         sutProvider.GetDependency<IGetProviderApiKeyQuery>()
-            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)
+            .GetProviderApiKeyAsync(provider.Id, ProviderApiKeyType.Default)
             .Returns(existingApiKey);
 
         await Assert.ThrowsAsync<BadRequestException>(
@@ -344,7 +344,7 @@ public class ProvidersControllerTests
 
     private static ProviderApiKeyRequestModel CreateModel() => new()
     {
-        Type = ProviderApiKeyType.BillingReadOnly,
+        Type = ProviderApiKeyType.Default,
         MasterPasswordHash = "master-password-hash",
     };
 

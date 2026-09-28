@@ -12,7 +12,7 @@ public class ProviderApiKeyRequestModelTests
     {
         var model = new ProviderApiKeyRequestModel
         {
-            Type = ProviderApiKeyType.BillingReadOnly,
+            Type = ProviderApiKeyType.Default,
             MasterPasswordHash = "master-password-hash",
         };
 

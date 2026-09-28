@@ -21,14 +21,14 @@ public class ProviderApiKeyRepositoryTests
 
         // Act
         var byType = (await providerApiKeyRepository
-            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.BillingReadOnly)).ToList();
+            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.Default)).ToList();
         var anyType = (await providerApiKeyRepository.GetManyByProviderIdTypeAsync(provider.Id)).ToList();
 
         // Assert
         var result = Assert.Single(byType);
         Assert.Equal(apiKey.Id, result.Id);
         Assert.Equal(provider.Id, result.ProviderId);
-        Assert.Equal(ProviderApiKeyType.BillingReadOnly, result.Type);
+        Assert.Equal(ProviderApiKeyType.Default, result.Type);
         Assert.Equal(apiKey.ApiKey, result.ApiKey);
         Assert.Equal(apiKey.RevisionDate, result.RevisionDate, TimeSpan.FromMilliseconds(10));
 
@@ -43,7 +43,7 @@ public class ProviderApiKeyRepositoryTests
         var provider = await CreateTestProviderAsync(providerRepository);
 
         var result = await providerApiKeyRepository
-            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.BillingReadOnly);
+            .GetManyByProviderIdTypeAsync(provider.Id, ProviderApiKeyType.Default);
 
         Assert.Empty(result);
     }
@@ -130,7 +130,7 @@ public class ProviderApiKeyRepositoryTests
     private static ProviderApiKey CreateTestApiKey(Guid providerId) => new()
     {
         ProviderId = providerId,
-        Type = ProviderApiKeyType.BillingReadOnly,
+        Type = ProviderApiKeyType.Default,
         ApiKey = Guid.NewGuid().ToString("N")[..30],
         RevisionDate = DateTime.UtcNow,
     };

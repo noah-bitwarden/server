@@ -89,7 +89,7 @@ public class ProvidersControllerApiKeyTests : IAsyncLifetime
         var existingKey = await _factory.GetService<IProviderApiKeyRepository>().CreateAsync(new ProviderApiKey
         {
             ProviderId = provider.Id,
-            Type = ProviderApiKeyType.BillingReadOnly,
+            Type = ProviderApiKeyType.Default,
             ApiKey = "business-unit-existing-key-000",
             RevisionDate = DateTime.UtcNow,
         });

@@ -17,7 +17,7 @@ public class GetProviderApiKeyQueryTests
         Guid id, Guid providerId)
     {
         sutProvider.GetDependency<IProviderApiKeyRepository>()
-            .GetManyByProviderIdTypeAsync(providerId, ProviderApiKeyType.BillingReadOnly)
+            .GetManyByProviderIdTypeAsync(providerId, ProviderApiKeyType.Default)
             .Returns(new List<ProviderApiKey>
             {
                 new()
@@ -25,12 +25,12 @@ public class GetProviderApiKeyQueryTests
                     Id = id,
                     ProviderId = providerId,
                     ApiKey = "test",
-                    Type = ProviderApiKeyType.BillingReadOnly,
+                    Type = ProviderApiKeyType.Default,
                     RevisionDate = DateTime.UtcNow.AddDays(-1),
                 },
             });
 
-        var apiKey = await sutProvider.Sut.GetProviderApiKeyAsync(providerId, ProviderApiKeyType.BillingReadOnly);
+        var apiKey = await sutProvider.Sut.GetProviderApiKeyAsync(providerId, ProviderApiKeyType.Default);
 
         Assert.NotNull(apiKey);
         Assert.Equal(id, apiKey.Id);
@@ -41,10 +41,10 @@ public class GetProviderApiKeyQueryTests
         Guid providerId)
     {
         sutProvider.GetDependency<IProviderApiKeyRepository>()
-            .GetManyByProviderIdTypeAsync(providerId, ProviderApiKeyType.BillingReadOnly)
+            .GetManyByProviderIdTypeAsync(providerId, ProviderApiKeyType.Default)
             .Returns(new List<ProviderApiKey>());
 
-        var apiKey = await sutProvider.Sut.GetProviderApiKeyAsync(providerId, ProviderApiKeyType.BillingReadOnly);
+        var apiKey = await sutProvider.Sut.GetProviderApiKeyAsync(providerId, ProviderApiKeyType.Default);
 
         Assert.Null(apiKey);
     }

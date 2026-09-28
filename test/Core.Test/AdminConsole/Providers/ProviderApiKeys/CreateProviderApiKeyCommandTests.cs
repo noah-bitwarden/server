@@ -17,15 +17,15 @@ public class CreateProviderApiKeyCommandTests
     public async Task CreateAsync_CreatesProviderApiKey(SutProvider<CreateProviderApiKeyCommand> sutProvider,
         Guid providerId)
     {
-        var apiKey = await sutProvider.Sut.CreateAsync(providerId, ProviderApiKeyType.BillingReadOnly);
+        var apiKey = await sutProvider.Sut.CreateAsync(providerId, ProviderApiKeyType.Default);
 
         Assert.Equal(providerId, apiKey.ProviderId);
-        Assert.Equal(ProviderApiKeyType.BillingReadOnly, apiKey.Type);
+        Assert.Equal(ProviderApiKeyType.Default, apiKey.Type);
         Assert.Equal(30, apiKey.ApiKey.Length);
         AssertHelper.AssertRecent(apiKey.RevisionDate);
         await sutProvider.GetDependency<IProviderApiKeyRepository>().Received(1)
             .CreateAsync(Arg.Is<ProviderApiKey>(k => k.ProviderId == providerId
-                                                    && k.Type == ProviderApiKeyType.BillingReadOnly
+                                                    && k.Type == ProviderApiKeyType.Default
                                                     && k.ApiKey == apiKey.ApiKey));
     }
 }

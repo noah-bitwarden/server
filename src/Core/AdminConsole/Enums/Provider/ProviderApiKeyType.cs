@@ -2,5 +2,5 @@
 
 public enum ProviderApiKeyType : byte
 {
-    BillingReadOnly = 0,
+    Default = 0,
 }
