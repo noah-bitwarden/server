@@ -238,6 +238,26 @@ public class IdentityApplicationFactory : WebApplicationFactoryBase<Startup>
         return context;
     }
 
+    public async Task<string> TokenFromProviderApiKeyAsync(Guid providerId, string clientSecret)
+    {
+        var context = await Server.PostAsync("/connect/token",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                { "scope", "api.provider" },
+                { "client_id", $"provider.{providerId}" },
+                { "client_secret", clientSecret },
+                { "grant_type", "client_credentials" },
+            }));
+
+        using var body = await AssertHelper.AssertResponseTypeIs<JsonDocument>(context);
+        var root = body.RootElement;
+        Debug.Assert(root.TryGetProperty("access_token", out var accessToken));
+        var accessTokenString = accessToken.GetString();
+        Debug.Assert(accessTokenString != null);
+
+        return accessTokenString;
+    }
+
     /// <summary>
     /// Registers a new user to the Identity Application Factory based on the RegisterFinishRequestModel
     /// </summary>

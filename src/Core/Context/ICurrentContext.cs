@@ -30,6 +30,11 @@ public interface ICurrentContext
     List<CurrentContextOrganization> Organizations { get; set; }
     Guid? InstallationId { get; set; }
     Guid? OrganizationId { get; set; }
+    /// <summary>
+    /// The ID of the Provider authenticated via a Provider API key (client credentials, <c>provider.{id}</c>).
+    /// Null for all other clients. This does not grant any provider or organization membership.
+    /// </summary>
+    Guid? ProviderId { get; set; }
     IdentityClientType IdentityClientType { get; set; }
     string ClientId { get; set; }
     Version? ClientVersion { get; set; }
