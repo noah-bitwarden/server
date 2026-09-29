@@ -29,6 +29,7 @@ using Bit.Core.Auth.Models.Data;
 using Bit.Core.Auth.Identity.TokenProviders;
 using Bit.Core.Tools.ImportFeatures;
 using Bit.Core.Auth.Models.Api.Request;
+using Bit.Core.Dirt.Events;
 using Bit.Core.Dirt.Reports.ReportFeatures;
 using Bit.Core.Tools.SendFeatures;
 using Bit.Core.Auth.IdentityServer;
@@ -196,6 +197,7 @@ public class Startup
         services.AddCoreLocalizationServices();
         services.AddBillingOperations();
         services.AddReportingServices(globalSettings);
+        services.AddEventQueries();
         services.AddImportServices();
 
         services.AddSendServices();

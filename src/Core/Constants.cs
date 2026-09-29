@@ -306,6 +306,7 @@ public static partial class FeatureFlagKeys
     public const string BrowserExtensionHealthReport = "pm-35928-premium-user-health-reports";
     public const string OrganizationEventCleanup = "pm-33527-organization-event-cleanup";
     public const string AccessIntelligencePerformanceAtScale = "pm-43231-access-intelligence-performance-at-scale";
+    public const string ProviderClientEvents = "pfi-389-provider-client-events";
 
     /* PAM */
     public const string Pam = "pm-37044-pam-v-0";
