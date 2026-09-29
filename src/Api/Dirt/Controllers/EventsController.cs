@@ -5,8 +5,11 @@ using Bit.Api.Dirt.Models.Response;
 using Bit.Api.Models.Response;
 using Bit.Api.Utilities;
 using Bit.Api.Utilities.DiagnosticTools;
+using Bit.Core;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.Context;
+using Bit.Core.Dirt.Events.ProviderClientEvents;
+using Bit.Core.Dirt.Events.ProviderClientEvents.Interfaces;
 using Bit.Core.Enums;
 using Bit.Core.Exceptions;
 using Bit.Core.Models.Data;
@@ -17,6 +20,7 @@ using Bit.Core.Services;
 using Bit.Core.Vault.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RequireFeatureAttribute = Bitwarden.Server.Sdk.Features.RequireFeatureAttribute;
 
 namespace Bit.Api.Dirt.Controllers;
 
@@ -35,7 +39,7 @@ public class EventsController : Controller
     private readonly IServiceAccountRepository _serviceAccountRepository;
     private readonly ILogger<EventsController> _logger;
     private readonly IFeatureService _featureService;
-
+    private readonly IGetProviderClientEventsQuery _getProviderClientEventsQuery;
 
     public EventsController(IUserService userService,
         ICipherRepository cipherRepository,
@@ -47,7 +51,8 @@ public class EventsController : Controller
         IProjectRepository projectRepository,
         IServiceAccountRepository serviceAccountRepository,
         ILogger<EventsController> logger,
-        IFeatureService featureService)
+        IFeatureService featureService,
+        IGetProviderClientEventsQuery getProviderClientEventsQuery)
     {
         _userService = userService;
         _cipherRepository = cipherRepository;
@@ -60,6 +65,7 @@ public class EventsController : Controller
         _serviceAccountRepository = serviceAccountRepository;
         _logger = logger;
         _featureService = featureService;
+        _getProviderClientEventsQuery = getProviderClientEventsQuery;
     }
 
     [HttpGet("")]
@@ -304,6 +310,41 @@ public class EventsController : Controller
             new PageOptions { ContinuationToken = continuationToken });
         var responses = result.Data.Select(e => new EventResponseModel(e));
         return new ListResponseModel<EventResponseModel>(responses, result.ContinuationToken);
+    }
+
+    /// <summary>
+    /// Events from the provider's client organizations, merged newest first. Limited to 10 client organizations:
+    /// select them with <paramref name="organizationIds"/>, which may be omitted when the provider has 10 or fewer.
+    /// </summary>
+    /// <remarks>
+    /// Provider admins only, like the provider-level log: the Provider Portal events tab is guarded by the admin-only
+    /// <c>canAccessEventLogs</c>, and widening access later is non-breaking where narrowing it would be breaking.
+    /// </remarks>
+    [HttpGet("~/providers/{providerId:guid}/client-events")]
+    [RequireFeature(FeatureFlagKeys.ProviderClientEvents)]
+    public async Task<ListResponseModel<EventResponseModel>> GetProviderClientEvents(Guid providerId,
+        [FromQuery] DateTime? start = null, [FromQuery] DateTime? end = null, [FromQuery] string continuationToken = null,
+        [FromQuery(Name = "organizationId")] List<Guid> organizationIds = null)
+    {
+        if (!_currentContext.ProviderAccessEventLogs(providerId))
+        {
+            throw new NotFoundException();
+        }
+
+        // With a continuation token, the query takes the date range from the token.
+        var dateRange = string.IsNullOrEmpty(continuationToken)
+            ? ApiHelpers.GetDateRange(start, end)
+            : new Tuple<DateTime, DateTime>(default, default);
+        var page = await _getProviderClientEventsQuery.GetMergedPageAsync(new ProviderClientEventsRequest
+        {
+            ProviderId = providerId,
+            Start = dateRange.Item1,
+            End = dateRange.Item2,
+            OrganizationIds = organizationIds,
+            ContinuationToken = continuationToken,
+        });
+        var responses = page.Data.Select(e => new EventResponseModel(e));
+        return new ListResponseModel<EventResponseModel>(responses, page.ContinuationToken);
     }
 
     [HttpGet("~/providers/{providerId:guid}/users/{id:guid}/events")]
