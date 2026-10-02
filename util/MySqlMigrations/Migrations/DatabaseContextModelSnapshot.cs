@@ -543,6 +543,12 @@ namespace Bit.MySqlMigrations.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("char(36)");
 
+                    b.Property<bool>("AutoscaleEnabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int?>("AutoscaleSeatLimit")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreationDate")
                         .HasColumnType("datetime(6)");
 

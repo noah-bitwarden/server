@@ -26,6 +26,8 @@ public class ProviderOrganizationResponseModel : ResponseModel
         Settings = providerOrganization.Settings;
         CreationDate = providerOrganization.CreationDate;
         RevisionDate = providerOrganization.RevisionDate;
+        AutoscaleEnabled = providerOrganization.AutoscaleEnabled;
+        AutoscaleSeatLimit = providerOrganization.AutoscaleSeatLimit;
     }
 
     public ProviderOrganizationResponseModel(ProviderOrganizationOrganizationDetails providerOrganization,
@@ -43,6 +45,8 @@ public class ProviderOrganizationResponseModel : ResponseModel
         Settings = providerOrganization.Settings;
         CreationDate = providerOrganization.CreationDate;
         RevisionDate = providerOrganization.RevisionDate;
+        AutoscaleEnabled = providerOrganization.AutoscaleEnabled;
+        AutoscaleSeatLimit = providerOrganization.AutoscaleSeatLimit;
         UserCount = providerOrganization.UserCount;
         Seats = providerOrganization.Seats;
         OccupiedSeats = providerOrganization.OccupiedSeats;
@@ -62,6 +66,8 @@ public class ProviderOrganizationResponseModel : ResponseModel
     public int? OccupiedSeats { get; set; }
     public int? RemainingSeats { get; set; }
     public string Plan { get; set; }
+    public bool AutoscaleEnabled { get; set; }
+    public int? AutoscaleSeatLimit { get; set; }
 }
 
 public class ProviderOrganizationOrganizationDetailsResponseModel : ProviderOrganizationResponseModel

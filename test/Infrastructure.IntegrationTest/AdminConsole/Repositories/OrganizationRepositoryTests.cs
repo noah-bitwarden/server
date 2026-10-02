@@ -246,7 +246,7 @@ public class OrganizationRepositoryTests
         IOrganizationRepository sutRepository)
     {
         // Arrange
-        var organization = await sutRepository.CreateTestOrganizationAsync(seatCount: 2);
+        var organization = await CreateSelfBilledTestOrganizationAsync(sutRepository, seatCount: 2);
         var requestDate = DateTime.UtcNow;
 
         // Act
@@ -267,7 +267,7 @@ public class OrganizationRepositoryTests
         IOrganizationRepository sutRepository)
     {
         // Arrange
-        var organization = await sutRepository.CreateTestOrganizationAsync(seatCount: 2);
+        var organization = await CreateSelfBilledTestOrganizationAsync(sutRepository, seatCount: 2);
         await sutRepository.IncrementSeatCountAsync(organization.Id, 1, DateTime.UtcNow);
 
         var requestDate = DateTime.UtcNow;
@@ -289,7 +289,7 @@ public class OrganizationRepositoryTests
         IOrganizationRepository sutRepository)
     {
         // Arrange
-        var organization = await sutRepository.CreateTestOrganizationAsync(seatCount: 2);
+        var organization = await CreateSelfBilledTestOrganizationAsync(sutRepository, seatCount: 2);
         var requestDate = DateTime.UtcNow;
         await sutRepository.IncrementSeatCountAsync(organization.Id, 1, requestDate);
 
@@ -309,7 +309,7 @@ public class OrganizationRepositoryTests
         IOrganizationRepository sutRepository)
     {
         // Arrange
-        var organization = await sutRepository.CreateTestOrganizationAsync(seatCount: 2);
+        var organization = await CreateSelfBilledTestOrganizationAsync(sutRepository, seatCount: 2);
         var requestDate = DateTime.UtcNow;
         var syncDate = DateTime.UtcNow.AddMinutes(1);
         await sutRepository.IncrementSeatCountAsync(organization.Id, 1, requestDate);
@@ -320,6 +320,36 @@ public class OrganizationRepositoryTests
         // Assert
         var result = (await sutRepository.GetOrganizationsForSubscriptionSyncAsync()).ToArray();
         Assert.Null(result.FirstOrDefault(x => x.Id == organization.Id));
+    }
+
+    [DatabaseData, Theory]
+    public async Task GetOrganizationsForSubscriptionSyncAsync_GivenManagedProviderClient_ExcludesIt(
+        IOrganizationRepository sutRepository)
+    {
+        // Arrange
+        var organization = await sutRepository.CreateTestOrganizationAsync(seatCount: 2);
+        organization.Status = OrganizationStatusType.Managed;
+        await sutRepository.ReplaceAsync(organization);
+        await sutRepository.IncrementSeatCountAsync(organization.Id, 1, DateTime.UtcNow);
+
+        // Act
+        var result = (await sutRepository.GetOrganizationsForSubscriptionSyncAsync()).ToArray();
+
+        // Assert
+        Assert.DoesNotContain(result, x => x.Id == organization.Id);
+    }
+
+    /// <summary>
+    /// Managed provider clients are billed through their provider, so subscription sync tests need an organization
+    /// that is billed on its own.
+    /// </summary>
+    private static async Task<Organization> CreateSelfBilledTestOrganizationAsync(
+        IOrganizationRepository organizationRepository, int seatCount)
+    {
+        var organization = await organizationRepository.CreateTestOrganizationAsync(seatCount: seatCount);
+        organization.Status = OrganizationStatusType.Created;
+        await organizationRepository.ReplaceAsync(organization);
+        return organization;
     }
 
     [DatabaseTheory, DatabaseData]

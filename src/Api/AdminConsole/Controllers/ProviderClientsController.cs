@@ -3,7 +3,10 @@
 
 using Bit.Api.AdminConsole.Authorization.Providers.Requirements;
 using Bit.Api.Billing.Models.Requests;
+using Bit.Api.Billing.Models.Responses;
+using Bit.Core;
 using Bit.Core.AdminConsole.Entities.Provider;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Services;
 using Bit.Core.Billing.Extensions;
@@ -31,7 +34,8 @@ public class ProviderClientsController(
     IProviderOrganizationRepository providerOrganizationRepository,
     IProviderRepository providerRepository,
     IProviderService providerService,
-    IUserService userService) : BaseAdminConsoleController
+    IUserService userService,
+    IUpdateProviderClientAutoscaleSettingsCommand updateProviderClientAutoscaleSettingsCommand) : BaseAdminConsoleController
 {
     [HttpPost]
     [SelfHosted(NotSelfHostedOnly = true)]
@@ -147,6 +151,36 @@ public class ProviderClientsController(
         await organizationRepository.ReplaceAsync(clientOrganization);
 
         return TypedResults.Ok();
+    }
+
+    /// <summary>
+    /// Turns seat autoscale on or off for a client. Admin-only because autoscale draws on the provider's seat minimum
+    /// on the client's behalf.
+    /// </summary>
+    [HttpPut("{providerOrganizationId:guid}/autoscale")]
+    [SelfHosted(NotSelfHostedOnly = true)]
+    [Authorize<ProviderAdminRequirement>]
+    [RequireFeature(FeatureFlagKeys.PM18793_ProviderClientSeatAutoscale)]
+    public async Task<IResult> UpdateAutoscaleAsync(
+        [FromRoute] Guid providerId,
+        [FromRoute] Guid providerOrganizationId,
+        [FromBody] UpdateClientAutoscaleRequestBody requestBody)
+    {
+        var providerOrganization = await providerOrganizationRepository.GetByIdAsync(providerOrganizationId);
+
+        if (providerOrganization == null || providerOrganization.ProviderId != providerId)
+        {
+            return Error.NotFound();
+        }
+
+        var result = await updateProviderClientAutoscaleSettingsCommand.UpdateAsync(
+            new UpdateProviderClientAutoscaleSettingsRequest(
+                providerId,
+                providerOrganization.OrganizationId,
+                requestBody.Enabled,
+                requestBody.SeatLimit));
+
+        return Handle(result, updated => TypedResults.Ok(ProviderClientAutoscaleResponse.From(updated)));
     }
 
     [HttpGet("addable")]

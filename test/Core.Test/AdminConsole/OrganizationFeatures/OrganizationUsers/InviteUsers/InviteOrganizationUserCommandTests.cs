@@ -10,6 +10,7 @@ using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.E
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Models;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation.PasswordManager;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Utilities.Commands;
 using Bit.Core.AdminConsole.Utilities.Errors;
@@ -248,6 +249,11 @@ public class InviteOrganizationUserCommandTests
         await sutProvider.GetDependency<ISendOrganizationInvitesCommand>()
             .DidNotReceive()
             .SendInvitesAsync(Arg.Any<SendInvitesRequest>());
+
+        // Validation failures, including a blocked provider client pre-check, end the request before seats are reserved
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>()
+            .DidNotReceiveWithAnyArgs()
+            .TryAutoscaleAsync(default!, default);
     }
 
     [Theory]
@@ -1393,4 +1399,144 @@ public class InviteOrganizationUserCommandTests
             .DidNotReceive()
             .SendInvitesAsync(Arg.Any<SendInvitesRequest>());
     }
+
+    [Theory]
+    [BitAutoData]
+    public async Task InviteScimOrganizationUserAsync_WhenProviderClientAutoscales_ThenOrganizationSubscriptionIsNotTouched(
+        MailAddress address,
+        Organization organization,
+        FakeTimeProvider timeProvider,
+        string externalId,
+        SutProvider<InviteOrganizationUsersCommand> sutProvider)
+    {
+        // Arrange
+        var (request, passwordManagerUpdate) = ArrangeFullProviderClientInvite(address, organization, timeProvider,
+            externalId, sutProvider);
+        SetProviderClientAutoscale(sutProvider, organization, ProviderClientSeatAutoscaleOutcome.Success);
+
+        // Act
+        var result = await sutProvider.Sut.InviteScimOrganizationUserAsync(request);
+
+        // Assert
+        Assert.IsType<Success<ScimInviteOrganizationUsersResponse>>(result);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().Received(1)
+            .TryAutoscaleAsync(organization, passwordManagerUpdate.SeatsRequiredToAdd);
+        await sutProvider.GetDependency<IOrganizationRepository>().DidNotReceiveWithAnyArgs()
+            .IncrementSeatCountAsync(default, default, default);
+        await sutProvider.GetDependency<IMailService>().DidNotReceiveWithAnyArgs()
+            .SendOrganizationAutoscaledEmailAsync(default!, default, default!);
+        await sutProvider.GetDependency<IMailService>().DidNotReceiveWithAnyArgs()
+            .SendOrganizationMaxSeatLimitReachedEmailAsync(default!, default, default!);
+        await sutProvider.GetDependency<IOrganizationUserRepository>().Received(1)
+            .CreateManyAsync(Arg.Any<IEnumerable<CreateOrganizationUser>>());
+    }
+
+    [Theory]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.PoolExhausted)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.ClientLimitReached)]
+    public async Task InviteScimOrganizationUserAsync_WhenProviderClientAutoscaleLosesRace_ThenOutOfSeatsFailureIsReturned(
+        ProviderClientSeatAutoscaleOutcome outcome,
+        MailAddress address,
+        Organization organization,
+        FakeTimeProvider timeProvider,
+        string externalId,
+        SutProvider<InviteOrganizationUsersCommand> sutProvider)
+    {
+        // Arrange
+        var (request, _) = ArrangeFullProviderClientInvite(address, organization, timeProvider, externalId, sutProvider);
+        SetProviderClientAutoscale(sutProvider, organization, outcome);
+
+        // Act
+        var result = await sutProvider.Sut.InviteScimOrganizationUserAsync(request);
+
+        // Assert
+        var failure = Assert.IsType<Failure<ScimInviteOrganizationUsersResponse>>(result);
+        Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, failure.Error.Message);
+        await sutProvider.GetDependency<IOrganizationUserRepository>().DidNotReceiveWithAnyArgs()
+            .CreateManyAsync(default(IEnumerable<CreateOrganizationUser>)!);
+        await sutProvider.GetDependency<IOrganizationRepository>().DidNotReceiveWithAnyArgs()
+            .IncrementSeatCountAsync(default, default, default);
+    }
+
+    [Theory]
+    [BitAutoData]
+    public async Task InviteScimOrganizationUserAsync_WhenProviderClientAutoscalesAndInviteFails_ThenSeatsAreNotReverted(
+        MailAddress address,
+        Organization organization,
+        FakeTimeProvider timeProvider,
+        string externalId,
+        SutProvider<InviteOrganizationUsersCommand> sutProvider)
+    {
+        // Arrange
+        var (request, _) = ArrangeFullProviderClientInvite(address, organization, timeProvider, externalId, sutProvider);
+        SetProviderClientAutoscale(sutProvider, organization, ProviderClientSeatAutoscaleOutcome.Success);
+        sutProvider.GetDependency<ISendOrganizationInvitesCommand>()
+            .SendInvitesAsync(Arg.Any<SendInvitesRequest>())
+            .ThrowsAsync(new Exception("mail is down"));
+
+        // Act
+        var result = await sutProvider.Sut.InviteScimOrganizationUserAsync(request);
+
+        // Assert
+        var failure = Assert.IsType<Failure<ScimInviteOrganizationUsersResponse>>(result);
+        Assert.Equal(FailedToInviteUsersError.Code, failure.Error.Message);
+        await sutProvider.GetDependency<IOrganizationRepository>().DidNotReceiveWithAnyArgs().ReplaceAsync(default!);
+    }
+
+    /// <summary>
+    /// A managed Teams client with every seat taken inviting one new member.
+    /// </summary>
+    private static (InviteOrganizationUsersRequest, PasswordManagerSubscriptionUpdate) ArrangeFullProviderClientInvite(
+        MailAddress address, Organization organization, FakeTimeProvider timeProvider, string externalId,
+        SutProvider<InviteOrganizationUsersCommand> sutProvider)
+    {
+        organization.Seats = 5;
+        organization.MaxAutoscaleSeats = null;
+        organization.Status = OrganizationStatusType.Managed;
+
+        var inviteOrganization = new InviteOrganization(organization, new TeamsPlan(isAnnual: false));
+        organization.PlanType = inviteOrganization.Plan.Type;
+
+        sutProvider.GetDependency<IPricingClient>()
+            .GetPlan(organization.PlanType)
+            .Returns(inviteOrganization.Plan);
+
+        var request = new InviteOrganizationUsersRequest(
+            invites: [
+                new OrganizationUserInviteCommandModel(
+                    email: address.Address,
+                    assignedCollections: [],
+                    groups: [],
+                    type: OrganizationUserType.User,
+                    permissions: new Permissions(),
+                    externalId: externalId,
+                    accessSecretsManager: false)
+            ],
+            organization: organization,
+            performedBy: Guid.Empty,
+            performedAt: timeProvider.GetUtcNow());
+
+        var passwordManagerUpdate = new PasswordManagerSubscriptionUpdate(inviteOrganization, organization.Seats.Value, 1);
+
+        sutProvider.GetDependency<IOrganizationUserRepository>()
+            .SelectKnownEmailsAsync(inviteOrganization.OrganizationId, Arg.Any<IEnumerable<string>>(), false)
+            .Returns([]);
+        sutProvider.GetDependency<IOrganizationRepository>().GetByIdAsync(organization.Id).Returns(organization);
+        sutProvider.GetDependency<IOrganizationRepository>()
+            .GetOccupiedSeatCountByOrganizationIdAsync(organization.Id)
+            .Returns(new OrganizationSeatCounts { Sponsored = 0, Users = organization.Seats.Value });
+        sutProvider.GetDependency<IInviteUsersValidator>()
+            .ValidateAsync(Arg.Any<InviteOrganizationUsersValidationRequest>())
+            .Returns(new Valid<InviteOrganizationUsersValidationRequest>(
+                GetInviteValidationRequestMock(request, inviteOrganization, organization)
+                    .WithPasswordManagerUpdate(passwordManagerUpdate)));
+
+        return (request, passwordManagerUpdate);
+    }
+
+    private static void SetProviderClientAutoscale(SutProvider<InviteOrganizationUsersCommand> sutProvider,
+        Organization organization, ProviderClientSeatAutoscaleOutcome outcome) =>
+        sutProvider.GetDependency<IProviderClientSeatAutoscaler>()
+            .TryAutoscaleAsync(organization, Arg.Any<int>())
+            .Returns(new ProviderClientSeatAutoscaleResult(outcome));
 }

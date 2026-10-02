@@ -375,7 +375,8 @@ public class InviteStagedOrganizationUsersCommand(
     /// </summary>
     private async Task ReleaseSeatsAsync(Organization organization, int seatsToRelease)
     {
-        if (seatsToRelease <= 0)
+        // Managed clients have no subscription of their own, so seats autoscaled from the provider stay added
+        if (seatsToRelease <= 0 || organization.Status == OrganizationStatusType.Managed)
         {
             return;
         }

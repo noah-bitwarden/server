@@ -21,6 +21,8 @@ public class ProviderOrganizationOrganizationDetails
     public string OrganizationName { get; set; }
     public string Key { get; set; }
     public string Settings { get; set; }
+    public bool AutoscaleEnabled { get; set; }
+    public int? AutoscaleSeatLimit { get; set; }
     public DateTime CreationDate { get; set; }
     public DateTime RevisionDate { get; set; }
     public int UserCount { get; set; }

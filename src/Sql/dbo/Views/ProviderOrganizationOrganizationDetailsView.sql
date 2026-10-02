@@ -14,7 +14,9 @@ SELECT
     O.[Seats],
     O.[Plan],
     O.[PlanType],
-    O.[Status]
+    O.[Status],
+    PO.[AutoscaleEnabled],
+    PO.[AutoscaleSeatLimit]
 FROM
     [dbo].[ProviderOrganization] PO
 LEFT JOIN

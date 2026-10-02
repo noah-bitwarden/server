@@ -37,7 +37,9 @@ public class ProviderOrganizationOrganizationDetailsReadByProviderIdQuery : IQue
             Seats = x.o.Seats,
             Plan = x.o.Plan,
             PlanType = x.o.PlanType,
-            Status = x.o.Status
+            Status = x.o.Status,
+            AutoscaleEnabled = x.po.AutoscaleEnabled,
+            AutoscaleSeatLimit = x.po.AutoscaleSeatLimit
         });
     }
 }

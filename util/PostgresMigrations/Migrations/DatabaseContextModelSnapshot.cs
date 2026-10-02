@@ -546,6 +546,12 @@ namespace Bit.PostgresMigrations.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AutoscaleEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("AutoscaleSeatLimit")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreationDate")
                         .HasColumnType("timestamp with time zone");
 

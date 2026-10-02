@@ -9,6 +9,7 @@ using Bit.Core.AdminConsole.Models.Business;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Errors;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Models;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Utilities.Commands;
 using Bit.Core.AdminConsole.Utilities.Errors;
@@ -39,7 +40,8 @@ public class InviteOrganizationUsersCommand(IEventService eventService,
     IPricingClient pricingClient,
     IGlobalSettings globalSettings,
     ICollectionRepository collectionRepository,
-    IGroupRepository groupRepository
+    IGroupRepository groupRepository,
+    IProviderClientSeatAutoscaler providerClientSeatAutoscaler
     ) : IInviteOrganizationUsersCommand
 {
 
@@ -164,15 +166,36 @@ public class InviteOrganizationUsersCommand(IEventService eventService,
 
         var organization = await organizationRepository.GetByIdAsync(validatedRequest!.Value.InviteOrganization.OrganizationId);
 
+        // Provider client seats are added before anyone is invited so a lost race fails without side effects. They
+        // stay added if a later step fails, matching organization autoscale.
+        var providerClientAutoscale = await providerClientSeatAutoscaler.TryAutoscaleAsync(organization,
+            validatedRequest.Value.PasswordManagerSubscriptionUpdate.SeatsRequiredToAdd);
+
+        if (providerClientAutoscale is { Applies: true, Succeeded: false })
+        {
+            return new Failure<InviteOrganizationUsersResponse>(
+                new Error<InviteOrganizationUsersResponse>(
+                    ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage,
+                    new InviteOrganizationUsersResponse(organization.Id)));
+        }
+
+        var providerClientAutoscaled = providerClientAutoscale.Succeeded;
+
         try
         {
             await organizationUserRepository.CreateManyAsync(organizationUserToInviteEntities);
 
-            await AdjustPasswordManagerSeatsAsync(validatedRequest, organization);
+            if (!providerClientAutoscaled)
+            {
+                await AdjustPasswordManagerSeatsAsync(validatedRequest, organization);
+            }
 
             await AdjustSecretsManagerSeatsAsync(validatedRequest);
 
-            await SendAdditionalEmailsAsync(validatedRequest, organization);
+            if (!providerClientAutoscaled)
+            {
+                await SendAdditionalEmailsAsync(validatedRequest, organization);
+            }
 
             await SendInvitesAsync(organizationUserToInviteEntities, organization, request.PerformedBy);
         }
@@ -185,7 +208,10 @@ public class InviteOrganizationUsersCommand(IEventService eventService,
             // Do this first so that SmSeats never exceed PM seats (due to current billing requirements)
             await RevertSecretsManagerChangesAsync(validatedRequest, organization, validatedRequest.Value.InviteOrganization.SmSeats);
 
-            await RevertPasswordManagerChangesAsync(validatedRequest, organization);
+            if (!providerClientAutoscaled)
+            {
+                await RevertPasswordManagerChangesAsync(validatedRequest, organization);
+            }
 
             return new Failure<InviteOrganizationUsersResponse>(
                 new FailedToInviteUsersError(

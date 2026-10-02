@@ -8,6 +8,7 @@ using AspNetCoreRateLimit;
 using Bit.Core.AdminConsole.AbilitiesCache;
 using Bit.Core.AdminConsole.Models.Business.Tokenables;
 using Bit.Core.AdminConsole.OrganizationFeatures.Policies;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Services;
 using Bit.Core.AdminConsole.Services.Implementations;
 using Bit.Core.AdminConsole.Services.NoopImplementations;
@@ -318,6 +319,7 @@ public static class ServiceCollectionExtensions
         services.AddTokenizers();
         services.AddOrganizationAbilityCache(globalSettings);
         services.AddProviderAbilityCache(globalSettings);
+        services.AddProviderClientSeatAutoscale(globalSettings);
 
         var awsConfigured = CoreHelpers.SettingHasValue(globalSettings.Amazon?.AccessKeySecret);
         if (awsConfigured && CoreHelpers.SettingHasValue(globalSettings.Mail?.SendGridApiKey))
