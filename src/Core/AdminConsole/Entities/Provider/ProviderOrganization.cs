@@ -30,6 +30,15 @@ public class ProviderOrganization : ITableObject<Guid>
     /// </summary>
     public string? Settings { get; set; }
     /// <summary>
+    /// Whether a provider admin has allowed this client to add seats automatically, within the provider's seat minimum,
+    /// when it runs out of assigned seats.
+    /// </summary>
+    public bool AutoscaleEnabled { get; set; }
+    /// <summary>
+    /// The most seats autoscale may grow this client to. <c>null</c> means only the provider's seat minimum applies.
+    /// </summary>
+    public int? AutoscaleSeatLimit { get; set; }
+    /// <summary>
     /// The date the provider-organization relationship was created.
     /// </summary>
     public DateTime CreationDate { get; internal set; } = DateTime.UtcNow;

@@ -130,6 +130,8 @@ public enum EventType : int
     ProviderOrganization_Added = 1901,
     ProviderOrganization_Removed = 1902,
     ProviderOrganization_VaultAccessed = 1903,
+    ProviderOrganization_AutoscaleUpdated = 1904,
+    ProviderOrganization_SeatsAutoscaled = 1905,
 
     OrganizationDomain_Added = 2000,
     OrganizationDomain_Removed = 2001,

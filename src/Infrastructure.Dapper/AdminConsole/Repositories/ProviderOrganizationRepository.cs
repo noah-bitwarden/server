@@ -116,6 +116,26 @@ public class ProviderOrganizationRepository : Repository<ProviderOrganization, G
         }
     }
 
+    public async Task<ProviderOrganizationAutoscaleSeatsResult> TryAutoscaleSeatsAsync(Guid organizationId,
+        string planName, int seatsToAdd, DateTime revisionDate, bool validateOnly = false)
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+
+        var result = await connection.ExecuteScalarAsync<int>(
+            $"[{Schema}].[ProviderOrganization_TryAutoscaleSeats]",
+            new
+            {
+                OrganizationId = organizationId,
+                PlanName = planName,
+                SeatsToAdd = seatsToAdd,
+                RevisionDate = revisionDate,
+                ValidateOnly = validateOnly
+            },
+            commandType: CommandType.StoredProcedure);
+
+        return (ProviderOrganizationAutoscaleSeatsResult)result;
+    }
+
     private DataTable BuildProviderOrganizationsTable(SqlBulkCopy bulkCopy, IEnumerable<ProviderOrganization> providerOrganizations)
     {
         var po = providerOrganizations.FirstOrDefault();
@@ -140,6 +160,10 @@ public class ProviderOrganizationRepository : Repository<ProviderOrganization, G
         providerOrganizationsTable.Columns.Add(creationDateColumn);
         var revisionDateColumn = new DataColumn(nameof(po.RevisionDate), po.RevisionDate.GetType());
         providerOrganizationsTable.Columns.Add(revisionDateColumn);
+        var autoscaleEnabledColumn = new DataColumn(nameof(po.AutoscaleEnabled), typeof(bool));
+        providerOrganizationsTable.Columns.Add(autoscaleEnabledColumn);
+        var autoscaleSeatLimitColumn = new DataColumn(nameof(po.AutoscaleSeatLimit), typeof(int));
+        providerOrganizationsTable.Columns.Add(autoscaleSeatLimitColumn);
 
         foreach (DataColumn col in providerOrganizationsTable.Columns)
         {
@@ -161,6 +185,10 @@ public class ProviderOrganizationRepository : Repository<ProviderOrganization, G
             row[settingsColumn] = providerOrganization.Settings;
             row[creationDateColumn] = providerOrganization.CreationDate;
             row[revisionDateColumn] = providerOrganization.RevisionDate;
+            row[autoscaleEnabledColumn] = providerOrganization.AutoscaleEnabled;
+            row[autoscaleSeatLimitColumn] = providerOrganization.AutoscaleSeatLimit.HasValue
+                ? providerOrganization.AutoscaleSeatLimit.Value
+                : DBNull.Value;
 
             providerOrganizationsTable.Rows.Add(row);
         }

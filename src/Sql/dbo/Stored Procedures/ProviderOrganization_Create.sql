@@ -5,7 +5,9 @@
     @Key VARCHAR(MAX),
     @Settings NVARCHAR(MAX),
     @CreationDate DATETIME2(7),
-    @RevisionDate DATETIME2(7)
+    @RevisionDate DATETIME2(7),
+    @AutoscaleEnabled BIT = 0,
+    @AutoscaleSeatLimit INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON
@@ -18,7 +20,9 @@ BEGIN
         [Key],
         [Settings],
         [CreationDate],
-        [RevisionDate]
+        [RevisionDate],
+        [AutoscaleEnabled],
+        [AutoscaleSeatLimit]
     )
     VALUES
     (
@@ -28,6 +32,8 @@ BEGIN
         @Key,
         @Settings,
         @CreationDate,
-        @RevisionDate
+        @RevisionDate,
+        @AutoscaleEnabled,
+        @AutoscaleSeatLimit
     )
 END

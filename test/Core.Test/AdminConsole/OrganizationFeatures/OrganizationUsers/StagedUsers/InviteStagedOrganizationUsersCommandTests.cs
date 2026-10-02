@@ -617,6 +617,24 @@ public class InviteStagedOrganizationUsersCommandTests
             .UpdateSubscriptionAsync(default!);
     }
 
+    [Theory, BitAutoData]
+    public async Task RunAsync_WhenSendingInvitesFailsForManagedProviderClient_KeepsTheAutoscaledSeats(
+        Organization organization, List<OrganizationUser> organizationUsers, Guid performedBy)
+    {
+        var sutProvider = GetSutProvider();
+        organization.Status = OrganizationStatusType.Managed;
+        var request = Arrange(sutProvider, organization, organizationUsers, performedBy, seats: 10, occupiedSeats: 9);
+
+        FailInviteSend(sutProvider);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sutProvider.Sut.RunAsync(request));
+
+        // Managed clients have no subscription of their own to give seats back to.
+        await sutProvider.GetDependency<IOrganizationService>()
+            .DidNotReceiveWithAnyArgs()
+            .AdjustSeatsAsync(default, default);
+    }
+
     /// <summary>
     /// The send failure is what the admin needs to see. A rollback that fails on top of it is an operations
     /// problem, reported through logs rather than by replacing the original exception.

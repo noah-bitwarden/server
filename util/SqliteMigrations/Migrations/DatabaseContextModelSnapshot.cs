@@ -538,6 +538,12 @@ namespace Bit.SqliteMigrations.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AutoscaleEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AutoscaleSeatLimit")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreationDate")
                         .HasColumnType("TEXT");
 

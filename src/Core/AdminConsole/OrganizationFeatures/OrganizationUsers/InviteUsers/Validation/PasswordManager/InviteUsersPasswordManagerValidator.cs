@@ -7,6 +7,7 @@ using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.V
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation.Organization;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation.Payments;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation.Provider;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Utilities.Errors;
 using Bit.Core.AdminConsole.Utilities.Validation;
@@ -24,7 +25,8 @@ public class InviteUsersPasswordManagerValidator(
     IInviteUsersOrganizationValidator inviteUsersOrganizationValidator,
     IProviderRepository providerRepository,
     IStripePaymentService paymentService,
-    IOrganizationRepository organizationRepository
+    IOrganizationRepository organizationRepository,
+    IProviderClientSeatAutoscaler providerClientSeatAutoscaler
     ) : IInviteUsersPasswordManagerValidator
 {
     /// <summary>
@@ -83,6 +85,20 @@ public class InviteUsersPasswordManagerValidator(
 
     public async Task<ValidationResult<PasswordManagerSubscriptionUpdate>> ValidateAsync(PasswordManagerSubscriptionUpdate request)
     {
+        // Provider client autoscale is decided first so it never depends on the client's own MaxAutoscaleSeats
+        if (request.SeatsRequiredToAdd > 0)
+        {
+            var organization = await organizationRepository.GetByIdAsync(request.InviteOrganization.OrganizationId);
+            var providerClientAutoscale = await providerClientSeatAutoscaler.EvaluateAsync(organization, request.SeatsRequiredToAdd);
+
+            if (providerClientAutoscale.Applies)
+            {
+                return providerClientAutoscale.Succeeded
+                    ? new Valid<PasswordManagerSubscriptionUpdate>(request)
+                    : new Invalid<PasswordManagerSubscriptionUpdate>(new ProviderClientSeatLimitReachedError(request));
+            }
+        }
+
         switch (ValidatePasswordManager(request))
         {
             case Valid<PasswordManagerSubscriptionUpdate> valid

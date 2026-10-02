@@ -8,6 +8,7 @@ using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.Interfaces;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Models;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Validation.PasswordManager;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.Auth.Enums;
 using Bit.Core.Auth.Repositories;
@@ -58,6 +59,7 @@ public class OrganizationService : IOrganizationService
     private readonly IStripeAdapter _stripeAdapter;
     private readonly IUpdateOrganizationSubscriptionCommand _updateOrganizationSubscriptionCommand;
     private readonly TimeProvider _timeProvider;
+    private readonly IProviderClientSeatAutoscaler _providerClientSeatAutoscaler;
 
     public OrganizationService(
         IOrganizationRepository organizationRepository,
@@ -81,7 +83,8 @@ public class OrganizationService : IOrganizationService
         ISendOrganizationInvitesCommand sendOrganizationInvitesCommand,
         IStripeAdapter stripeAdapter,
         IUpdateOrganizationSubscriptionCommand updateOrganizationSubscriptionCommand,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IProviderClientSeatAutoscaler providerClientSeatAutoscaler)
     {
         _organizationRepository = organizationRepository;
         _organizationUserRepository = organizationUserRepository;
@@ -105,6 +108,7 @@ public class OrganizationService : IOrganizationService
         _stripeAdapter = stripeAdapter;
         _updateOrganizationSubscriptionCommand = updateOrganizationSubscriptionCommand;
         _timeProvider = timeProvider;
+        _providerClientSeatAutoscaler = providerClientSeatAutoscaler;
     }
 
     public async Task<string> AdjustStorageAsync(Guid organizationId, short storageAdjustmentGb)
@@ -528,10 +532,32 @@ public class OrganizationService : IOrganizationService
 
         if (newSeatsRequired > 0)
         {
-            var (canScale, failureReason) = await CanScaleAsync(organization, newSeatsRequired);
-            if (!canScale)
+            var providerClientAutoscale = await _providerClientSeatAutoscaler.EvaluateAsync(organization, newSeatsRequired);
+            if (providerClientAutoscale.Applies)
             {
-                throw new BadRequestException(await ToInviteSeatLimitMessageAsync(organization, failureReason));
+                if (!providerClientAutoscale.Succeeded)
+                {
+                    throw new BadRequestException(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage);
+                }
+
+                if (!await _currentContext.ManageUsers(organization.Id))
+                {
+                    throw new BadRequestException("Cannot add seats. Cannot manage organization users.");
+                }
+
+                // Provider client seats are added before anyone is invited so a lost race fails cleanly
+                if (await TryReserveProviderClientSeatsAsync(organization, newSeatsRequired))
+                {
+                    newSeatsRequired = 0;
+                }
+            }
+            else
+            {
+                var (canScale, failureReason) = await CanScaleAsync(organization, newSeatsRequired);
+                if (!canScale)
+                {
+                    throw new BadRequestException(await ToInviteSeatLimitMessageAsync(organization, failureReason));
+                }
             }
         }
 
@@ -746,8 +772,10 @@ public class OrganizationService : IOrganizationService
                 await _updateSecretsManagerSubscriptionCommand.UpdateSubscriptionAsync(smSubscriptionUpdateRevert);
             }
 
+            // Managed clients have no subscription of their own, so seats autoscaled from the provider stay added
             if (initialSeatCount.HasValue && currentOrganization.Seats.HasValue &&
-                currentOrganization.Seats.Value != initialSeatCount.Value)
+                currentOrganization.Seats.Value != initialSeatCount.Value &&
+                currentOrganization.Status != OrganizationStatusType.Managed)
             {
                 await AdjustSeatsAsync(organization, initialSeatCount.Value - currentOrganization.Seats.Value);
             }
@@ -830,6 +858,14 @@ public class OrganizationService : IOrganizationService
             return (true, failureReason);
         }
 
+        var providerClientAutoscale = await _providerClientSeatAutoscaler.EvaluateAsync(organization, seatsToAdd);
+        if (providerClientAutoscale.Applies)
+        {
+            return providerClientAutoscale.Succeeded
+                ? (true, failureReason)
+                : (false, ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage);
+        }
+
         var provider = await _providerRepository.GetByOrganizationIdAsync(organization.Id);
 
         if (provider is { Enabled: true })
@@ -901,6 +937,11 @@ public class OrganizationService : IOrganizationService
             return;
         }
 
+        if (await TryReserveProviderClientSeatsAsync(organization, seatsToAdd))
+        {
+            return;
+        }
+
         var (canScale, failureMessage) = await CanScaleAsync(organization, seatsToAdd);
         if (!canScale)
         {
@@ -936,6 +977,27 @@ public class OrganizationService : IOrganizationService
         }
     }
 
+    /// <summary>
+    /// Adds seats to an eligible provider client from its provider's seat minimum. Returns <c>false</c> when the
+    /// organization isn't an eligible provider client, so the caller continues with organization autoscaling.
+    /// </summary>
+    /// <exception cref="BadRequestException">The organization is an eligible provider client, but autoscale can't
+    /// cover the seats.</exception>
+    private async Task<bool> TryReserveProviderClientSeatsAsync(Organization organization, int seatsToAdd)
+    {
+        var result = await _providerClientSeatAutoscaler.TryAutoscaleAsync(organization, seatsToAdd);
+        if (!result.Applies)
+        {
+            return false;
+        }
+
+        if (!result.Succeeded)
+        {
+            throw new BadRequestException(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage);
+        }
+
+        return true;
+    }
 
     public async Task DeleteSsoUserAsync(Guid userId, Guid? organizationId)
     {

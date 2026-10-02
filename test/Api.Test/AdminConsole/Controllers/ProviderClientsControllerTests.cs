@@ -1,9 +1,11 @@
 ﻿using System.Security.Claims;
 using Bit.Api.AdminConsole.Controllers;
 using Bit.Api.Billing.Models.Requests;
+using Bit.Api.Billing.Models.Responses;
 using Bit.Core.AdminConsole.Entities;
 using Bit.Core.AdminConsole.Entities.Provider;
 using Bit.Core.AdminConsole.Enums.Provider;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.AdminConsole.Services;
 using Bit.Core.Billing.Enums;
@@ -315,6 +317,112 @@ public class ProviderClientsControllerTests
             .ReplaceAsync(Arg.Is<Organization>(org => org.Seats == requestBody.AssignedSeats && org.Name == requestBody.Name));
 
         Assert.IsType<Ok>(result);
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAutoscaleAsync_ValidRequest_ReturnsUpdatedSettings(
+        Guid providerId,
+        Guid providerOrganizationId,
+        ProviderOrganization providerOrganization,
+        SutProvider<ProviderClientsController> sutProvider)
+    {
+        providerOrganization.ProviderId = providerId;
+        sutProvider.GetDependency<IProviderOrganizationRepository>().GetByIdAsync(providerOrganizationId)
+            .Returns(providerOrganization);
+        sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>()
+            .UpdateAsync(Arg.Any<UpdateProviderClientAutoscaleSettingsRequest>())
+            .Returns(call =>
+            {
+                var request = call.Arg<UpdateProviderClientAutoscaleSettingsRequest>();
+                providerOrganization.AutoscaleEnabled = request.Enabled;
+                providerOrganization.AutoscaleSeatLimit = request.SeatLimit;
+                return providerOrganization;
+            });
+
+        var result = await sutProvider.Sut.UpdateAutoscaleAsync(providerId, providerOrganizationId,
+            new UpdateClientAutoscaleRequestBody { Enabled = true, SeatLimit = 25 });
+
+        var ok = Assert.IsType<Ok<ProviderClientAutoscaleResponse>>(result);
+        Assert.Equal(new ProviderClientAutoscaleResponse(true, 25), ok.Value);
+        await sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>().Received(1)
+            .UpdateAsync(new UpdateProviderClientAutoscaleSettingsRequest(providerId,
+                providerOrganization.OrganizationId, true, 25));
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAutoscaleAsync_ProviderOrganizationNotFound_ReturnsNotFound(
+        Guid providerId,
+        Guid providerOrganizationId,
+        SutProvider<ProviderClientsController> sutProvider)
+    {
+        sutProvider.GetDependency<IProviderOrganizationRepository>().GetByIdAsync(providerOrganizationId).ReturnsNull();
+
+        var result = await sutProvider.Sut.UpdateAutoscaleAsync(providerId, providerOrganizationId,
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        AssertNotFound(result);
+        await sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>().DidNotReceiveWithAnyArgs()
+            .UpdateAsync(default!);
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAutoscaleAsync_ProviderOrganizationBelongsToDifferentProvider_ReturnsNotFound(
+        Guid providerId,
+        Guid providerOrganizationId,
+        ProviderOrganization providerOrganization,
+        SutProvider<ProviderClientsController> sutProvider)
+    {
+        sutProvider.GetDependency<IProviderOrganizationRepository>().GetByIdAsync(providerOrganizationId)
+            .Returns(providerOrganization);
+
+        var result = await sutProvider.Sut.UpdateAutoscaleAsync(providerId, providerOrganizationId,
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        AssertNotFound(result);
+        await sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>().DidNotReceiveWithAnyArgs()
+            .UpdateAsync(default!);
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAutoscaleAsync_ProviderNotEligible_ReturnsBadRequest(
+        Guid providerId,
+        Guid providerOrganizationId,
+        ProviderOrganization providerOrganization,
+        SutProvider<ProviderClientsController> sutProvider)
+    {
+        providerOrganization.ProviderId = providerId;
+        sutProvider.GetDependency<IProviderOrganizationRepository>().GetByIdAsync(providerOrganizationId)
+            .Returns(providerOrganization);
+        sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>()
+            .UpdateAsync(Arg.Any<UpdateProviderClientAutoscaleSettingsRequest>())
+            .Returns(new ProviderNotEligibleForAutoscale());
+
+        var result = await sutProvider.Sut.UpdateAutoscaleAsync(providerId, providerOrganizationId,
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        var badRequest = Assert.IsType<BadRequest<ErrorResponseModel>>(result);
+        Assert.Equal(new ProviderNotEligibleForAutoscale().Message, badRequest.Value!.Message);
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAutoscaleAsync_InvalidSeatLimit_ReturnsBadRequest(
+        Guid providerId,
+        Guid providerOrganizationId,
+        ProviderOrganization providerOrganization,
+        SutProvider<ProviderClientsController> sutProvider)
+    {
+        providerOrganization.ProviderId = providerId;
+        sutProvider.GetDependency<IProviderOrganizationRepository>().GetByIdAsync(providerOrganizationId)
+            .Returns(providerOrganization);
+        sutProvider.GetDependency<IUpdateProviderClientAutoscaleSettingsCommand>()
+            .UpdateAsync(Arg.Any<UpdateProviderClientAutoscaleSettingsRequest>())
+            .Returns(new InvalidAutoscaleSeatLimit());
+
+        var result = await sutProvider.Sut.UpdateAutoscaleAsync(providerId, providerOrganizationId,
+            new UpdateClientAutoscaleRequestBody { Enabled = true, SeatLimit = 1 });
+
+        var badRequest = Assert.IsType<BadRequest<ErrorResponseModel>>(result);
+        Assert.Equal(new InvalidAutoscaleSeatLimit().Message, badRequest.Value!.Message);
     }
 
     private static void ConfigureStableProviderInputs(

@@ -1,7 +1,9 @@
 ﻿using System.Net;
 using Bit.Api.Billing.Models.Requests;
+using Bit.Api.Billing.Models.Responses;
 using Bit.Api.IntegrationTest.Factories;
 using Bit.Api.IntegrationTest.Helpers;
+using Bit.Core;
 using Bit.Core.AdminConsole.Entities;
 using Bit.Core.AdminConsole.Entities.Provider;
 using Bit.Core.AdminConsole.Enums.Provider;
@@ -11,6 +13,7 @@ using Bit.Core.Billing.Providers.Services;
 using Bit.Core.Entities;
 using Bit.Core.Enums;
 using Bit.Core.Repositories;
+using Bit.Core.Services;
 using NSubstitute;
 using Xunit;
 
@@ -34,6 +37,7 @@ public class ProviderClientsControllerTests : IClassFixture<ApiApplicationFactor
     {
         _factory = factory;
         _factory.SubstituteService<IProviderBillingService>(_ => { });
+        _factory.SubstituteService<IFeatureService>(_ => { });
         _client = _factory.CreateClient();
         _loginHelper = new LoginHelper(_factory, _client);
     }
@@ -257,5 +261,128 @@ public class ProviderClientsControllerTests : IClassFixture<ApiApplicationFactor
         await _loginHelper.LoginAsync(_providerAdminEmail);
         var response = await _client.GetAsync($"providers/{_provider.Id}/clients/addable");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateAutoscaleAsync_AsProviderAdmin_SavesSettings()
+    {
+        SetAutoscaleFeatureFlag(true);
+        var providerOrganization = await CreateManagedClientAsync(_provider);
+        await _loginHelper.LoginAsync(_providerAdminEmail);
+
+        var response = await _client.PutAsJsonAsync(
+            $"providers/{_provider.Id}/clients/{providerOrganization.Id}/autoscale",
+            new UpdateClientAutoscaleRequestBody { Enabled = true, SeatLimit = 15 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ProviderClientAutoscaleResponse>();
+        Assert.Equal(new ProviderClientAutoscaleResponse(true, 15), body);
+
+        var saved = await _factory.GetService<IProviderOrganizationRepository>().GetByIdAsync(providerOrganization.Id);
+        Assert.True(saved!.AutoscaleEnabled);
+        Assert.Equal(15, saved.AutoscaleSeatLimit);
+    }
+
+    [Fact]
+    public async Task UpdateAutoscaleAsync_AsServiceUser_ReturnsForbidden()
+    {
+        SetAutoscaleFeatureFlag(true);
+        var providerOrganization = await CreateManagedClientAsync(_provider);
+        await _loginHelper.LoginAsync(_serviceUserEmail);
+
+        var response = await _client.PutAsJsonAsync(
+            $"providers/{_provider.Id}/clients/{providerOrganization.Id}/autoscale",
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var saved = await _factory.GetService<IProviderOrganizationRepository>().GetByIdAsync(providerOrganization.Id);
+        Assert.False(saved!.AutoscaleEnabled);
+    }
+
+    [Fact]
+    public async Task UpdateAutoscaleAsync_FeatureFlagOff_ReturnsNotFound()
+    {
+        SetAutoscaleFeatureFlag(false);
+        var providerOrganization = await CreateManagedClientAsync(_provider);
+        await _loginHelper.LoginAsync(_providerAdminEmail);
+
+        var response = await _client.PutAsJsonAsync(
+            $"providers/{_provider.Id}/clients/{providerOrganization.Id}/autoscale",
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateAutoscaleAsync_SeatLimitBelowCurrentSeats_ReturnsBadRequest()
+    {
+        SetAutoscaleFeatureFlag(true);
+        var providerOrganization = await CreateManagedClientAsync(_provider);
+        await _loginHelper.LoginAsync(_providerAdminEmail);
+
+        var response = await _client.PutAsJsonAsync(
+            $"providers/{_provider.Id}/clients/{providerOrganization.Id}/autoscale",
+            new UpdateClientAutoscaleRequestBody { Enabled = true, SeatLimit = 5 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(ProviderType.Reseller)]
+    [InlineData(ProviderType.BusinessUnit)]
+    public async Task UpdateAutoscaleAsync_NonMspProvider_ReturnsBadRequest(ProviderType providerType)
+    {
+        SetAutoscaleFeatureFlag(true);
+        var provider = await _factory.GetService<IProviderRepository>().CreateAsync(new Provider
+        {
+            Name = $"Test {providerType} Provider",
+            BillingEmail = "billing@test.com",
+            Type = providerType,
+            Status = ProviderStatusType.Billable,
+            Enabled = true
+        });
+        var providerAdmin = await _factory.GetService<IUserRepository>().GetByEmailAsync(_providerAdminEmail);
+        await _factory.GetService<IProviderUserRepository>().CreateAsync(new ProviderUser
+        {
+            ProviderId = provider.Id,
+            UserId = providerAdmin!.Id,
+            Type = ProviderUserType.ProviderAdmin,
+            Status = ProviderUserStatusType.Confirmed,
+            Key = Guid.NewGuid().ToString()
+        });
+        var providerOrganization = await CreateManagedClientAsync(provider);
+        await _loginHelper.LoginAsync(_providerAdminEmail);
+
+        var response = await _client.PutAsJsonAsync(
+            $"providers/{provider.Id}/clients/{providerOrganization.Id}/autoscale",
+            new UpdateClientAutoscaleRequestBody { Enabled = true });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private void SetAutoscaleFeatureFlag(bool enabled) =>
+        _factory.GetService<IFeatureService>()
+            .IsEnabled(FeatureFlagKeys.PM18793_ProviderClientSeatAutoscale)
+            .Returns(enabled);
+
+    private async Task<ProviderOrganization> CreateManagedClientAsync(Provider provider)
+    {
+        var organization = await _factory.GetService<IOrganizationRepository>().CreateAsync(new Organization
+        {
+            Name = "Autoscale Client",
+            BillingEmail = _providerAdminEmail,
+            Plan = "Teams (Monthly)",
+            PlanType = PlanType.TeamsMonthly,
+            Status = OrganizationStatusType.Managed,
+            Enabled = true,
+            Seats = 10,
+            UseSecretsManager = false
+        });
+
+        return await _factory.GetService<IProviderOrganizationRepository>().CreateAsync(new ProviderOrganization
+        {
+            ProviderId = provider.Id,
+            OrganizationId = organization.Id
+        });
     }
 }

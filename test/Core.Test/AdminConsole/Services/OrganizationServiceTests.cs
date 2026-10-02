@@ -5,6 +5,7 @@ using Bit.Core.AdminConsole.Enums.Provider;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.Interfaces;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers;
 using Bit.Core.AdminConsole.OrganizationFeatures.OrganizationUsers.InviteUsers.Models;
+using Bit.Core.AdminConsole.Providers.ClientSeatAutoscale;
 using Bit.Core.AdminConsole.Repositories;
 using Bit.Core.Auth.Models.Business.Tokenables;
 using Bit.Core.Billing.Commands;
@@ -923,6 +924,282 @@ public class OrganizationServiceTests
 
         Assert.False(result);
         Assert.Contains("Seat limit has been reached. Contact your provider to purchase additional seats.", failureMessage);
+    }
+
+    [Theory, PaidOrganizationCustomize, BitAutoData]
+    public async Task CanScaleAsync_FailsOnBillableMspManagedOrganization_WhenProviderAutoscaleDoesNotApply(
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        sutProvider.GetDependency<IProviderRepository>().GetByOrganizationIdAsync(organization.Id)
+            .Returns(new Provider { Enabled = true, Type = ProviderType.Msp, Status = ProviderStatusType.Billable });
+
+        var (result, failureMessage) = await sutProvider.Sut.CanScaleAsync(organization, 10);
+
+        Assert.False(result);
+        Assert.Equal("Seat limit has been reached. Please contact your provider to add more seats.", failureMessage);
+    }
+
+    [Theory, PaidOrganizationCustomize, BitAutoData]
+    public async Task CanScaleAsync_ProviderClientAutoscaleCanCover_ReturnsTrueWithoutProviderCheck(
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetProviderClientAutoscale(sutProvider, evaluate: ProviderClientSeatAutoscaleOutcome.Success);
+
+        var (result, failureMessage) = await sutProvider.Sut.CanScaleAsync(organization, 3);
+
+        Assert.True(result);
+        Assert.Empty(failureMessage);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().Received(1).EvaluateAsync(organization, 3);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().DidNotReceiveWithAnyArgs()
+            .TryAutoscaleAsync(default!, default);
+        await sutProvider.GetDependency<IProviderRepository>().DidNotReceiveWithAnyArgs()
+            .GetByOrganizationIdAsync(default);
+    }
+
+    [Theory]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.NotEnabled)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.NoPool)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.PoolExhausted)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.ClientLimitReached)]
+    public async Task CanScaleAsync_ProviderClientAutoscaleCannotCover_ReturnsProviderMessage(
+        ProviderClientSeatAutoscaleOutcome outcome,
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetProviderClientAutoscale(sutProvider, evaluate: outcome);
+
+        var (result, failureMessage) = await sutProvider.Sut.CanScaleAsync(organization, 3);
+
+        Assert.False(result);
+        Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, failureMessage);
+    }
+
+    [Theory, PaidOrganizationCustomize, BitAutoData]
+    public async Task AutoAddSeatsAsync_ProviderClientAutoscaled_DoesNotScaleOrganizationSubscription(
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        organization.Seats = 10;
+        SetProviderClientAutoscale(sutProvider, tryAutoscale: ProviderClientSeatAutoscaleOutcome.Success);
+
+        await sutProvider.Sut.AutoAddSeatsAsync(organization, 2);
+
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().Received(1).TryAutoscaleAsync(organization, 2);
+        await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
+            .AdjustSeatsAsync(default!, default!, default);
+        await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
+            .GetSubscriptionAsync(default!);
+        await sutProvider.GetDependency<IUpdateOrganizationSubscriptionCommand>().DidNotReceiveWithAnyArgs()
+            .Run(default!, default!);
+        await sutProvider.GetDependency<IMailService>().DidNotReceiveWithAnyArgs()
+            .SendOrganizationAutoscaledEmailAsync(default!, default, default!);
+        await sutProvider.GetDependency<IOrganizationRepository>().DidNotReceiveWithAnyArgs().ReplaceAsync(default!);
+    }
+
+    [Theory]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.NotEnabled)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.PoolExhausted)]
+    [BitAutoData(ProviderClientSeatAutoscaleOutcome.ClientLimitReached)]
+    public async Task AutoAddSeatsAsync_ProviderClientAutoscaleFails_ThrowsProviderMessage(
+        ProviderClientSeatAutoscaleOutcome outcome,
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        organization.Seats = 10;
+        SetProviderClientAutoscale(sutProvider, tryAutoscale: outcome);
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(
+            () => sutProvider.Sut.AutoAddSeatsAsync(organization, 1));
+
+        Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, exception.Message);
+        await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
+            .AdjustSeatsAsync(default!, default!, default);
+    }
+
+    [Theory, PaidOrganizationCustomize, BitAutoData]
+    public async Task AutoAddSeatsAsync_BillableMspManagedOrganization_WhenProviderAutoscaleDoesNotApply_Throws(
+        Organization organization,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        organization.Seats = 10;
+        sutProvider.GetDependency<IProviderRepository>().GetByOrganizationIdAsync(organization.Id)
+            .Returns(new Provider { Enabled = true, Type = ProviderType.Msp, Status = ProviderStatusType.Billable });
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(
+            () => sutProvider.Sut.AutoAddSeatsAsync(organization, 1));
+
+        Assert.Equal("Seat limit has been reached. Please contact your provider to add more seats.", exception.Message);
+    }
+
+    [Theory]
+    [OrganizationInviteCustomize(
+        InviteeUserType = OrganizationUserType.User,
+        InvitorUserType = OrganizationUserType.Owner
+    ), OrganizationCustomize, BitAutoData]
+    public async Task InviteUsers_ProviderClientAutoscale_ReservesSeatsOnceBeforeCreatingUsers(
+        Organization organization, OrganizationUserInvite invite, OrganizationUser invitor,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetupFullProviderClientInvite(organization, invite, sutProvider);
+        SetProviderClientAutoscale(sutProvider, evaluate: ProviderClientSeatAutoscaleOutcome.Success,
+            tryAutoscale: ProviderClientSeatAutoscaleOutcome.Success);
+
+        await sutProvider.Sut.InviteUsersAsync(organization.Id, invitor.UserId, systemUser: null,
+            new (OrganizationUserInvite, string)[] { (invite, null) });
+
+        var autoscaler = sutProvider.GetDependency<IProviderClientSeatAutoscaler>();
+        var organizationUserRepository = sutProvider.GetDependency<IOrganizationUserRepository>();
+        Received.InOrder(() =>
+        {
+            autoscaler.TryAutoscaleAsync(organization, invite.Emails.Count());
+            organizationUserRepository.CreateManyAsync(Arg.Any<IEnumerable<OrganizationUser>>());
+        });
+        await autoscaler.ReceivedWithAnyArgs(1).TryAutoscaleAsync(default!, default);
+        await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
+            .AdjustSeatsAsync(default!, default!, default);
+        await sutProvider.GetDependency<ISendOrganizationInvitesCommand>().Received(1)
+            .SendInvitesAsync(Arg.Any<SendInvitesRequest>());
+    }
+
+    [Theory]
+    [OrganizationInviteCustomize(
+        InviteeUserType = OrganizationUserType.User,
+        InvitorUserType = OrganizationUserType.Owner
+    ), OrganizationCustomize, BitAutoData]
+    public async Task InviteUsers_ProviderClientAutoscaleCannotCover_ThrowsWithoutCreatingUsers(
+        Organization organization, OrganizationUserInvite invite, OrganizationUser invitor,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetupFullProviderClientInvite(organization, invite, sutProvider);
+        SetProviderClientAutoscale(sutProvider, evaluate: ProviderClientSeatAutoscaleOutcome.PoolExhausted);
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() => sutProvider.Sut.InviteUsersAsync(
+            organization.Id, invitor.UserId, systemUser: null, new (OrganizationUserInvite, string)[] { (invite, null) }));
+
+        Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, exception.Message);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().DidNotReceiveWithAnyArgs()
+            .TryAutoscaleAsync(default!, default);
+        await sutProvider.GetDependency<IOrganizationUserRepository>().DidNotReceiveWithAnyArgs()
+            .CreateManyAsync(default(IEnumerable<OrganizationUser>)!);
+    }
+
+    [Theory]
+    [OrganizationInviteCustomize(
+        InviteeUserType = OrganizationUserType.User,
+        InvitorUserType = OrganizationUserType.Owner
+    ), OrganizationCustomize, BitAutoData]
+    public async Task InviteUsers_ProviderClientAutoscaleLosesRace_ThrowsWithoutCreatingUsers(
+        Organization organization, OrganizationUserInvite invite, OrganizationUser invitor,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetupFullProviderClientInvite(organization, invite, sutProvider);
+        SetProviderClientAutoscale(sutProvider, evaluate: ProviderClientSeatAutoscaleOutcome.Success,
+            tryAutoscale: ProviderClientSeatAutoscaleOutcome.PoolExhausted);
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() => sutProvider.Sut.InviteUsersAsync(
+            organization.Id, invitor.UserId, systemUser: null, new (OrganizationUserInvite, string)[] { (invite, null) }));
+
+        Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, exception.Message);
+        await sutProvider.GetDependency<IOrganizationUserRepository>().DidNotReceiveWithAnyArgs()
+            .CreateManyAsync(default(IEnumerable<OrganizationUser>)!);
+    }
+
+    [Theory]
+    [OrganizationInviteCustomize(
+        InviteeUserType = OrganizationUserType.User,
+        InvitorUserType = OrganizationUserType.Owner
+    ), OrganizationCustomize, BitAutoData]
+    public async Task InviteUsers_ProviderClientAutoscale_WhenInviterCannotManageUsers_ThrowsWithoutReservingSeats(
+        Organization organization, OrganizationUserInvite invite, OrganizationUser invitor,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetupFullProviderClientInvite(organization, invite, sutProvider);
+        sutProvider.GetDependency<ICurrentContext>().ManageUsers(organization.Id).Returns(false);
+        SetProviderClientAutoscale(sutProvider, evaluate: ProviderClientSeatAutoscaleOutcome.Success,
+            tryAutoscale: ProviderClientSeatAutoscaleOutcome.Success);
+
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() => sutProvider.Sut.InviteUsersAsync(
+            organization.Id, invitor.UserId, systemUser: null, new (OrganizationUserInvite, string)[] { (invite, null) }));
+
+        Assert.Equal("Cannot add seats. Cannot manage organization users.", exception.Message);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().DidNotReceiveWithAnyArgs()
+            .TryAutoscaleAsync(default!, default);
+    }
+
+    [Theory]
+    [OrganizationInviteCustomize(
+        InviteeUserType = OrganizationUserType.User,
+        InvitorUserType = OrganizationUserType.Owner
+    ), OrganizationCustomize, BitAutoData]
+    public async Task InviteUsers_ProviderClientAutoscaled_WhenInviteFails_KeepsSeats(
+        Organization organization, OrganizationUserInvite invite, OrganizationUser invitor,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        SetupFullProviderClientInvite(organization, invite, sutProvider);
+        var initialSeats = organization.Seats!.Value;
+        sutProvider.GetDependency<IProviderClientSeatAutoscaler>()
+            .EvaluateAsync(organization, Arg.Any<int>())
+            .Returns(new ProviderClientSeatAutoscaleResult(ProviderClientSeatAutoscaleOutcome.Success));
+        sutProvider.GetDependency<IProviderClientSeatAutoscaler>()
+            .TryAutoscaleAsync(organization, Arg.Any<int>())
+            .Returns(new ProviderClientSeatAutoscaleResult(ProviderClientSeatAutoscaleOutcome.Success))
+            .AndDoes(call => organization.Seats += call.Arg<int>());
+        sutProvider.GetDependency<ISendOrganizationInvitesCommand>()
+            .SendInvitesAsync(Arg.Any<SendInvitesRequest>()).ThrowsAsync<Exception>();
+
+        await Assert.ThrowsAsync<AggregateException>(() => sutProvider.Sut.InviteUsersAsync(
+            organization.Id, invitor.UserId, systemUser: null, new (OrganizationUserInvite, string)[] { (invite, null) }));
+
+        Assert.True(organization.Seats > initialSeats);
+        await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
+            .AdjustSeatsAsync(default!, default!, default);
+        await sutProvider.GetDependency<IUpdateOrganizationSubscriptionCommand>().DidNotReceiveWithAnyArgs()
+            .Run(default!, default!);
+    }
+
+    /// <summary>
+    /// A managed client with every seat taken, so each invitee needs a seat from provider client autoscale.
+    /// </summary>
+    private void SetupFullProviderClientInvite(Organization organization, OrganizationUserInvite invite,
+        SutProvider<OrganizationService> sutProvider)
+    {
+        organization.Status = OrganizationStatusType.Managed;
+        organization.Seats = 10;
+        organization.MaxAutoscaleSeats = null;
+        invite.Emails = ["invitee1@example.com", "invitee2@example.com"];
+
+        sutProvider.GetDependency<IOrganizationRepository>().GetByIdAsync(organization.Id).Returns(organization);
+        sutProvider.GetDependency<IOrganizationRepository>()
+            .GetOccupiedSeatCountByOrganizationIdAsync(organization.Id)
+            .Returns(new OrganizationSeatCounts { Sponsored = 0, Users = 10 });
+        sutProvider.GetDependency<IHasConfirmedOwnersExceptQuery>()
+            .HasConfirmedOwnersExceptAsync(organization.Id, Arg.Any<IEnumerable<Guid>>(), Arg.Any<bool>())
+            .Returns(true);
+
+        var currentContext = sutProvider.GetDependency<ICurrentContext>();
+        currentContext.ManageUsers(organization.Id).Returns(true);
+        currentContext.OrganizationOwner(organization.Id).Returns(true);
+
+        SetupOrgUserRepositoryCreateManyAsyncMock(sutProvider.GetDependency<IOrganizationUserRepository>());
+    }
+
+    private static void SetProviderClientAutoscale(SutProvider<OrganizationService> sutProvider,
+        ProviderClientSeatAutoscaleOutcome? evaluate = null, ProviderClientSeatAutoscaleOutcome? tryAutoscale = null)
+    {
+        var autoscaler = sutProvider.GetDependency<IProviderClientSeatAutoscaler>();
+        if (evaluate.HasValue)
+        {
+            autoscaler.EvaluateAsync(Arg.Any<Organization>(), Arg.Any<int>())
+                .Returns(new ProviderClientSeatAutoscaleResult(evaluate.Value));
+        }
+
+        if (tryAutoscale.HasValue)
+        {
+            autoscaler.TryAutoscaleAsync(Arg.Any<Organization>(), Arg.Any<int>())
+                .Returns(new ProviderClientSeatAutoscaleResult(tryAutoscale.Value));
+        }
     }
 
 

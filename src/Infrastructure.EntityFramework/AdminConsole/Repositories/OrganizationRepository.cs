@@ -493,7 +493,8 @@ public class OrganizationRepository : Repository<Core.AdminConsole.Entities.Orga
         await using var dbContext = GetDatabaseContext(scope);
 
         var organizations = await dbContext.Organizations
-            .Where(o => o.SyncSeats == true && o.Seats != null)
+            // Managed clients are billed through their provider's subscription, never their own
+            .Where(o => o.SyncSeats == true && o.Seats != null && o.Status != OrganizationStatusType.Managed)
             .ToArrayAsync();
 
         return organizations;
