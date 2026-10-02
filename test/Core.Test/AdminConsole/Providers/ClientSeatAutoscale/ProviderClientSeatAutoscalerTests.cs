@@ -38,8 +38,7 @@ public class ProviderClientSeatAutoscalerTests
         await sutProvider.GetDependency<IProviderOrganizationRepository>().Received(1)
             .TryAutoscaleSeatsAsync(organization.Id, MockPlans.Get(PlanType.TeamsMonthly).Name, 3,
                 Arg.Any<DateTime>(), false);
-        await sutProvider.GetDependency<IEventService>().Received(1)
-            .LogProviderOrganizationEventAsync(providerOrganization, EventType.ProviderOrganization_SeatsAutoscaled);
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization, EventType.ProviderOrganization_SeatsAutoscaled);
     }
 
     [Theory, BitAutoData]
@@ -80,8 +79,105 @@ public class ProviderClientSeatAutoscalerTests
         Assert.True(result.Applies);
         Assert.False(result.Succeeded);
         Assert.Equal(10, organization.Seats);
+        await sutProvider.GetDependency<IEventService>().DidNotReceive()
+            .LogProviderOrganizationEventAsync(Arg.Any<ProviderOrganization>(),
+                EventType.ProviderOrganization_SeatsAutoscaled);
+    }
+
+    [Theory]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.PoolExhausted,
+        EventType.ProviderOrganization_SeatAutoscaleBlockedPoolExhausted)]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.ClientLimitReached,
+        EventType.ProviderOrganization_SeatAutoscaleBlockedClientLimit)]
+    public async Task TryAutoscaleAsync_Blocked_LogsBlockedEventOnce(ProviderOrganizationAutoscaleSeatsResult repositoryResult,
+        EventType expectedEvent, Organization organization, Provider provider)
+    {
+        var (sutProvider, providerOrganization) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, repositoryResult);
+
+        await sutProvider.Sut.TryAutoscaleAsync(organization, 1);
+
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization, expectedEvent);
+    }
+
+    [Theory]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.PoolExhausted,
+        EventType.ProviderOrganization_SeatAutoscaleBlockedPoolExhausted)]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.ClientLimitReached,
+        EventType.ProviderOrganization_SeatAutoscaleBlockedClientLimit)]
+    public async Task EvaluateAsync_Blocked_LogsBlockedEventOnce(ProviderOrganizationAutoscaleSeatsResult repositoryResult,
+        EventType expectedEvent, Organization organization, Provider provider)
+    {
+        var (sutProvider, providerOrganization) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, repositoryResult);
+
+        await sutProvider.Sut.EvaluateAsync(organization, 1);
+
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization, expectedEvent);
+    }
+
+    [Theory]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.NotEnabled)]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.NoPool)]
+    [BitAutoData(ProviderOrganizationAutoscaleSeatsResult.ClientNotManaged)]
+    public async Task TryAutoscaleAsync_NotActionableFailure_DoesNotLogEvent(
+        ProviderOrganizationAutoscaleSeatsResult repositoryResult, Organization organization, Provider provider)
+    {
+        var (sutProvider, _) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, repositoryResult);
+
+        await sutProvider.Sut.TryAutoscaleAsync(organization, 1);
+        await sutProvider.Sut.EvaluateAsync(organization, 1);
+
         await sutProvider.GetDependency<IEventService>().DidNotReceiveWithAnyArgs()
             .LogProviderOrganizationEventAsync(default!, default);
+    }
+
+    [Theory, BitAutoData]
+    public async Task TryAutoscaleAsync_BlockedRepeatedly_LogsEveryTimeButEmailsOnce(Organization organization,
+        Provider provider)
+    {
+        var (sutProvider, providerOrganization) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, ProviderOrganizationAutoscaleSeatsResult.PoolExhausted);
+
+        await sutProvider.Sut.EvaluateAsync(organization, 1);
+        await sutProvider.Sut.TryAutoscaleAsync(organization, 1);
+        await sutProvider.Sut.TryAutoscaleAsync(organization, 1);
+
+        await sutProvider.GetDependency<IEventService>().Received(3)
+            .LogProviderOrganizationEventAsync(providerOrganization,
+                EventType.ProviderOrganization_SeatAutoscaleBlockedPoolExhausted);
+        await sutProvider.GetDependency<IMailer>().ReceivedWithAnyArgs(1)
+            .SendEmail(default(ProviderClientSeatAutoscaleBlocked)!);
+    }
+
+    [Theory, BitAutoData]
+    public async Task TryAutoscaleAsync_EventLoggingFailsAfterSeatsAdded_StillSucceeds(Organization organization,
+        Provider provider)
+    {
+        var (sutProvider, _) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, ProviderOrganizationAutoscaleSeatsResult.Success);
+        SetEventServiceThrows(sutProvider);
+
+        var result = await sutProvider.Sut.TryAutoscaleAsync(organization, 2);
+
+        Assert.Equal(ProviderClientSeatAutoscaleOutcome.Success, result.Outcome);
+        Assert.Equal(12, organization.Seats);
+    }
+
+    [Theory, BitAutoData]
+    public async Task TryAutoscaleAsync_EventLoggingFailsWhenBlocked_StillReturnsOutcomeAndEmails(
+        Organization organization, Provider provider)
+    {
+        var (sutProvider, _) = Arrange(organization, provider);
+        SetRepositoryResult(sutProvider, ProviderOrganizationAutoscaleSeatsResult.ClientLimitReached);
+        SetEventServiceThrows(sutProvider);
+
+        var result = await sutProvider.Sut.TryAutoscaleAsync(organization, 1);
+
+        Assert.Equal(ProviderClientSeatAutoscaleOutcome.ClientLimitReached, result.Outcome);
+        await sutProvider.GetDependency<IMailer>().ReceivedWithAnyArgs(1)
+            .SendEmail(default(ProviderClientSeatAutoscaleBlocked)!);
     }
 
     [Theory, BitAutoData]
@@ -96,6 +192,8 @@ public class ProviderClientSeatAutoscalerTests
         Assert.Equal(ProviderClientSeatAutoscaleOutcome.NotEnabled, result.Outcome);
         await sutProvider.GetDependency<IProviderOrganizationRepository>().DidNotReceiveWithAnyArgs()
             .TryAutoscaleSeatsAsync(default, default!, default, default, default);
+        await sutProvider.GetDependency<IEventService>().DidNotReceiveWithAnyArgs()
+            .LogProviderOrganizationEventAsync(default!, default);
     }
 
     [Theory, BitAutoData]
@@ -377,5 +475,20 @@ public class ProviderClientSeatAutoscalerTests
         Assert.Equal(ProviderClientSeatAutoscaleOutcome.NotApplicable, evaluateResult.Outcome);
         await sutProvider.GetDependency<IProviderOrganizationRepository>().DidNotReceiveWithAnyArgs()
             .TryAutoscaleSeatsAsync(default, default!, default, default, default);
+        await sutProvider.GetDependency<IEventService>().DidNotReceiveWithAnyArgs()
+            .LogProviderOrganizationEventAsync(default!, default);
     }
+
+    private static async Task AssertLoggedOnlyAsync(SutProvider<ProviderClientSeatAutoscaler> sutProvider,
+        ProviderOrganization providerOrganization, EventType eventType)
+    {
+        var eventService = sutProvider.GetDependency<IEventService>();
+        await eventService.Received(1).LogProviderOrganizationEventAsync(providerOrganization, eventType);
+        await eventService.ReceivedWithAnyArgs(1).LogProviderOrganizationEventAsync(default!, default);
+    }
+
+    private static void SetEventServiceThrows(SutProvider<ProviderClientSeatAutoscaler> sutProvider) =>
+        sutProvider.GetDependency<IEventService>()
+            .LogProviderOrganizationEventAsync(Arg.Any<ProviderOrganization>(), Arg.Any<EventType>())
+            .ThrowsAsync(new Exception("events are down"));
 }

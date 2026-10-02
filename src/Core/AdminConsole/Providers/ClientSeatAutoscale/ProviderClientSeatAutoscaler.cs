@@ -71,13 +71,16 @@ public class ProviderClientSeatAutoscaler(
         if (outcome == ProviderClientSeatAutoscaleOutcome.Success && !validateOnly)
         {
             organization.Seats += seatsToAdd;
-            await eventService.LogProviderOrganizationEventAsync(providerOrganization,
-                EventType.ProviderOrganization_SeatsAutoscaled);
+            await LogEventAsync(providerOrganization, EventType.ProviderOrganization_SeatsAutoscaled);
         }
 
+        // Blocked outcomes are logged in both modes because a blocked pre-check ends the request before any commit
         if (outcome is ProviderClientSeatAutoscaleOutcome.PoolExhausted
             or ProviderClientSeatAutoscaleOutcome.ClientLimitReached)
         {
+            await LogEventAsync(providerOrganization, outcome == ProviderClientSeatAutoscaleOutcome.PoolExhausted
+                ? EventType.ProviderOrganization_SeatAutoscaleBlockedPoolExhausted
+                : EventType.ProviderOrganization_SeatAutoscaleBlockedClientLimit);
             await NotifyProviderAdminsAsync(provider, providerOrganization, organization, plan.Name, outcome);
         }
 
@@ -124,6 +127,22 @@ public class ProviderClientSeatAutoscaler(
             ProviderOrganizationAutoscaleSeatsResult.ClientLimitReached => ProviderClientSeatAutoscaleOutcome.ClientLimitReached,
             _ => ProviderClientSeatAutoscaleOutcome.ClientNotManaged,
         };
+
+    /// <summary>
+    /// Logs a provider event. A failure here is logged and never fails the seat request, which may already be committed.
+    /// </summary>
+    private async Task LogEventAsync(ProviderOrganization providerOrganization, EventType type)
+    {
+        try
+        {
+            await eventService.LogProviderOrganizationEventAsync(providerOrganization, type);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to log {EventType} for provider organization {ProviderOrganizationId}",
+                type, providerOrganization.Id);
+        }
+    }
 
     /// <summary>
     /// Emails confirmed provider admins at most once per throttle window. A failure here is logged and never fails the

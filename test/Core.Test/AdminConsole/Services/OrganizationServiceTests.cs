@@ -1016,6 +1016,8 @@ public class OrganizationServiceTests
         Assert.Equal(ProviderClientSeatAutoscaleResult.SeatLimitReachedMessage, exception.Message);
         await sutProvider.GetDependency<IStripePaymentService>().DidNotReceiveWithAnyArgs()
             .AdjustSeatsAsync(default!, default!, default);
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>().DidNotReceiveWithAnyArgs()
+            .EvaluateAsync(default!, default);
     }
 
     [Theory, PaidOrganizationCustomize, BitAutoData]

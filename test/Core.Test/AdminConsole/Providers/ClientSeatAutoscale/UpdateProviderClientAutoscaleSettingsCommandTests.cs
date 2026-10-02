@@ -9,6 +9,7 @@ using Bit.Core.Services;
 using Bit.Test.Common.AutoFixture;
 using Bit.Test.Common.AutoFixture.Attributes;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Xunit;
 
 namespace Bit.Core.Test.AdminConsole.Providers.ClientSeatAutoscale;
@@ -20,7 +21,7 @@ public class UpdateProviderClientAutoscaleSettingsCommandTests
     [BitAutoData((object?)null)]
     [BitAutoData(10)]
     [BitAutoData(25)]
-    public async Task UpdateAsync_ValidRequest_SavesSettingsAndLogsEvent(int? seatLimit,
+    public async Task UpdateAsync_TurnOn_SavesSettingsAndLogsEnabledEvent(int? seatLimit,
         SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, Provider provider,
         Organization organization)
     {
@@ -35,23 +36,91 @@ public class UpdateProviderClientAutoscaleSettingsCommandTests
         Assert.Equal(seatLimit, providerOrganization.AutoscaleSeatLimit);
         await sutProvider.GetDependency<IProviderOrganizationRepository>().Received(1)
             .ReplaceAsync(providerOrganization);
-        await sutProvider.GetDependency<IEventService>().Received(1)
-            .LogProviderOrganizationEventAsync(providerOrganization, EventType.ProviderOrganization_AutoscaleUpdated);
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization, EventType.ProviderOrganization_AutoscaleEnabled);
     }
 
-    [Theory, BitAutoData]
-    public async Task UpdateAsync_Disable_ClearsEnabled(SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider,
-        Provider provider, Organization organization)
+    [Theory]
+    [BitAutoData((object?)null, (object?)null)]
+    [BitAutoData(15, 15)]
+    [BitAutoData(15, null)]
+    public async Task UpdateAsync_TurnOff_ClearsEnabledAndLogsDisabledEvent(int? currentSeatLimit, int? seatLimit,
+        SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, Provider provider,
+        Organization organization)
     {
         var providerOrganization = Arrange(sutProvider, provider, organization);
         providerOrganization.AutoscaleEnabled = true;
+        providerOrganization.AutoscaleSeatLimit = currentSeatLimit;
 
         var result = await sutProvider.Sut.UpdateAsync(
-            new UpdateProviderClientAutoscaleSettingsRequest(provider.Id, organization.Id, false, 15));
+            new UpdateProviderClientAutoscaleSettingsRequest(provider.Id, organization.Id, false, seatLimit));
 
         Assert.True(result.IsSuccess);
         Assert.False(providerOrganization.AutoscaleEnabled);
-        Assert.Equal(15, providerOrganization.AutoscaleSeatLimit);
+        Assert.Equal(seatLimit, providerOrganization.AutoscaleSeatLimit);
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization, EventType.ProviderOrganization_AutoscaleDisabled);
+    }
+
+    [Theory]
+    [BitAutoData((object?)null, 10)]
+    [BitAutoData(10, 25)]
+    [BitAutoData(25, null)]
+    public async Task UpdateAsync_LimitChangedWhileOn_LogsLimitUpdatedEvent(int? currentSeatLimit, int? seatLimit,
+        SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, Provider provider,
+        Organization organization)
+    {
+        var providerOrganization = Arrange(sutProvider, provider, organization);
+        providerOrganization.AutoscaleEnabled = true;
+        providerOrganization.AutoscaleSeatLimit = currentSeatLimit;
+
+        var result = await sutProvider.Sut.UpdateAsync(
+            new UpdateProviderClientAutoscaleSettingsRequest(provider.Id, organization.Id, true, seatLimit));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(seatLimit, providerOrganization.AutoscaleSeatLimit);
+        await AssertLoggedOnlyAsync(sutProvider, providerOrganization,
+            EventType.ProviderOrganization_AutoscaleLimitUpdated);
+    }
+
+    [Theory]
+    [BitAutoData(true, null, null)]
+    [BitAutoData(true, 10, 10)]
+    [BitAutoData(false, null, null)]
+    [BitAutoData(false, null, 15)]
+    [BitAutoData(false, 15, null)]
+    public async Task UpdateAsync_NoEffectiveChange_SavesWithoutLoggingEvent(bool enabled, int? currentSeatLimit,
+        int? seatLimit, SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, Provider provider,
+        Organization organization)
+    {
+        var providerOrganization = Arrange(sutProvider, provider, organization);
+        providerOrganization.AutoscaleEnabled = enabled;
+        providerOrganization.AutoscaleSeatLimit = currentSeatLimit;
+
+        var result = await sutProvider.Sut.UpdateAsync(
+            new UpdateProviderClientAutoscaleSettingsRequest(provider.Id, organization.Id, enabled, seatLimit));
+
+        Assert.True(result.IsSuccess);
+        await sutProvider.GetDependency<IProviderOrganizationRepository>().Received(1)
+            .ReplaceAsync(providerOrganization);
+        await sutProvider.GetDependency<IEventService>().DidNotReceiveWithAnyArgs()
+            .LogProviderOrganizationEventAsync(default!, default);
+    }
+
+    [Theory, BitAutoData]
+    public async Task UpdateAsync_EventLoggingFails_StillSucceeds(
+        SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, Provider provider,
+        Organization organization)
+    {
+        var providerOrganization = Arrange(sutProvider, provider, organization);
+        sutProvider.GetDependency<IEventService>()
+            .LogProviderOrganizationEventAsync(Arg.Any<ProviderOrganization>(), Arg.Any<EventType>())
+            .ThrowsAsync(new Exception("events are down"));
+
+        var result = await sutProvider.Sut.UpdateAsync(
+            new UpdateProviderClientAutoscaleSettingsRequest(provider.Id, organization.Id, true, null));
+
+        Assert.True(result.IsSuccess);
+        await sutProvider.GetDependency<IProviderOrganizationRepository>().Received(1)
+            .ReplaceAsync(providerOrganization);
     }
 
     [Theory, BitAutoData]
@@ -177,6 +246,15 @@ public class UpdateProviderClientAutoscaleSettingsCommandTests
             .Returns(providerOrganization);
 
         return providerOrganization;
+    }
+
+    private static async Task AssertLoggedOnlyAsync(
+        SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider, ProviderOrganization providerOrganization,
+        EventType eventType)
+    {
+        var eventService = sutProvider.GetDependency<IEventService>();
+        await eventService.Received(1).LogProviderOrganizationEventAsync(providerOrganization, eventType);
+        await eventService.ReceivedWithAnyArgs(1).LogProviderOrganizationEventAsync(default!, default);
     }
 
     private static async Task AssertNotSavedAsync(SutProvider<UpdateProviderClientAutoscaleSettingsCommand> sutProvider)

@@ -249,6 +249,11 @@ public class InviteOrganizationUserCommandTests
         await sutProvider.GetDependency<ISendOrganizationInvitesCommand>()
             .DidNotReceive()
             .SendInvitesAsync(Arg.Any<SendInvitesRequest>());
+
+        // Validation failures, including a blocked provider client pre-check, end the request before seats are reserved
+        await sutProvider.GetDependency<IProviderClientSeatAutoscaler>()
+            .DidNotReceiveWithAnyArgs()
+            .TryAutoscaleAsync(default!, default);
     }
 
     [Theory]
